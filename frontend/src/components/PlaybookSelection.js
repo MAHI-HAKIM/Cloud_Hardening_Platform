@@ -162,14 +162,30 @@ const PlaybookSelection = () => {
           )}
         </div>
 
-        <div className="dashboard-panel">
+        <div
+          className="dashboard-panel playbooks-scrollable-panel"
+          style={{
+            maxHeight: "640px",
+            overflowY: playbooks.length > 4 ? "auto" : "visible",
+            position: "relative",
+            background:
+              playbooks.length > 4
+                ? "linear-gradient(to bottom, rgba(0, 255, 159, 0.05) 0%, rgba(0, 255, 159, 0.01) 100%)"
+                : "transparent",
+          }}
+        >
           <div className="panel-header">
             <h2>Cloud Hardening Playbooks</h2>
           </div>
           {loading ? (
             <div className="loading-indicator">Loading playbooks...</div>
           ) : (
-            <ul className="playbook-list">
+            <ul
+              className="playbook-list"
+              style={{
+                paddingRight: playbooks.length > 4 ? "10px" : "0",
+              }}
+            >
               {playbooks.map((playbook, idx) => (
                 <li key={playbook.fullPath || idx} className="playbook-item">
                   <div className="playbook-info">
@@ -190,35 +206,49 @@ const PlaybookSelection = () => {
               ))}
             </ul>
           )}
-        </div>
-
-        {runResult && (
-          <div className="dashboard-panel terminal-panel">
-            <div className="panel-header">
-              <h2>Hardening Results</h2>
-            </div>
+          {playbooks.length > 4 && (
             <div
-              className="terminal-output"
               style={{
-                backgroundColor: "#111",
-                color: runResult.success ? "#00ff9f" : "#ff4d4d",
-                fontFamily: "monospace",
-                padding: "1rem",
-                borderRadius: "5px",
-                maxHeight: "400px",
-                overflowY: "auto",
-                whiteSpace: "pre-wrap",
-                fontSize: "0.9em",
-                lineHeight: "1.5",
+                position: "absolute",
+                bottom: 0,
+                left: 0,
+                right: 0,
+                height: "30px",
+                background:
+                  "linear-gradient(to top, rgba(0, 255, 159, 0.1) 0%, transparent 100%)",
+                pointerEvents: "none",
               }}
-            >
-              {runResult.success
-                ? runResult.output
-                : runResult.error || "Unknown error"}
-            </div>
-          </div>
-        )}
+            />
+          )}
+        </div>
       </div>
+
+      {runResult && (
+        <div className="dashboard-panel full-width-terminal-panel">
+          <div className="panel-header">
+            <h2>Hardening Results</h2>
+          </div>
+          <div
+            className="terminal-output"
+            style={{
+              backgroundColor: "#111",
+              color: runResult.success ? "#00ff9f" : "#ff4d4d",
+              fontFamily: "monospace",
+              padding: "1rem",
+              borderRadius: "5px",
+              maxHeight: "400px",
+              overflowY: "auto",
+              whiteSpace: "pre-wrap",
+              fontSize: "0.9em",
+              lineHeight: "1.5",
+            }}
+          >
+            {runResult.success
+              ? runResult.output
+              : runResult.error || "Unknown error"}
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   );
 };

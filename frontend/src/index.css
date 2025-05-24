@@ -3264,3 +3264,47 @@ body {
 .button-icon {
   font-size: 1rem;
 }
+
+/* Playbook Scrollable Panel */
+.playbooks-scrollable-panel {
+  max-height: 650px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 255, 159, 0.3) transparent;
+}
+
+.playbooks-scrollable-panel::-webkit-scrollbar {
+  width: 6px;
+  background: transparent;
+}
+
+.playbooks-scrollable-panel::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 255, 159, 0.3);
+  border-radius: 3px;
+  transition: background-color 0.3s ease;
+}
+
+.playbooks-scrollable-panel::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 255, 159, 0.5);
+}
+
+.full-width-terminal-panel {
+  width: 100%;
+  margin-top: 1.5rem;
+  background: rgba(26, 26, 26, 0.8);
+  border-radius: 10px;
+  border: 1px solid rgba(0, 255, 159, 0.1);
+}
+
+.full-width-terminal-panel .terminal-output {
+  background-color: #111;
+  color: #00ff9f;
+  font-family: monospace;
+  padding: 1rem;
+  border-radius: 5px;
+  max-height: 400px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  font-size: 0.9em;
+  line-height: 1.5;
+}
