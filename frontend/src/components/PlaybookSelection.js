@@ -165,13 +165,9 @@ const PlaybookSelection = () => {
         <div
           className="dashboard-panel playbooks-scrollable-panel"
           style={{
-            maxHeight: "640px",
+            maxHeight: "630px",
             overflowY: playbooks.length > 4 ? "auto" : "visible",
             position: "relative",
-            background:
-              playbooks.length > 4
-                ? "linear-gradient(to bottom, rgba(0, 255, 159, 0.05) 0%, rgba(0, 255, 159, 0.01) 100%)"
-                : "transparent",
           }}
         >
           <div className="panel-header">
