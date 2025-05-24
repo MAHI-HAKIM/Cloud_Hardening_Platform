@@ -1,0 +1,21 @@
+---
+- name: Audit password aging policy
+  hosts: target
+  become: yes
+  tasks:
+    - name: Get password aging policy for root user
+      command: chage -l root
+      register: root_aging
+
+    - name: Show root password aging info
+      debug:
+        var: root_aging.stdout_lines
+
+    # Optional: Add checks for additional users here
+    # - name: Get password aging policy for another user
+    #   command: chage -l <username>
+    #   register: user_aging
+
+    # - name: Show <username> password aging info
+    #   debug:
+    #     var: user_aging.stdout_lines
