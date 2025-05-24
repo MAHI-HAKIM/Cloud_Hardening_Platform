@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { auth, db } from "../firebase";
 import { collection, query, where, getDocs } from "firebase/firestore";
 import DashboardLayout from "./DashboardLayout";
-import { FaPlay } from "react-icons/fa";
+import { FaPlay, FaTerminal } from "react-icons/fa";
 
 const PlaybookSelection = () => {
   const [devices, setDevices] = useState([]);
@@ -13,6 +13,7 @@ const PlaybookSelection = () => {
   const [loading, setLoading] = useState(true);
   const [isRunning, setIsRunning] = useState(false);
   const [runResult, setRunResult] = useState(null);
+  const [terminalLogs, setTerminalLogs] = useState([]);
 
   useEffect(() => {
     const fetchDevices = async () => {
@@ -42,7 +43,9 @@ const PlaybookSelection = () => {
   useEffect(() => {
     const fetchPlaybooks = async () => {
       try {
-        const res = await fetch("http://localhost:5000/api/getplaybooks/available");
+        const res = await fetch(
+          "http://localhost:5000/api/getplaybooks/available"
+        );
         const data = await res.json();
         setPlaybooks(data);
       } catch {
@@ -54,6 +57,7 @@ const PlaybookSelection = () => {
 
   const handleRunPlaybook = async () => {
     setRunResult(null);
+    setTerminalLogs([]);
     const device = devices.find((d) => d.id === selectedDevice);
     if (!device || !selectedPlaybook) {
       alert("Please select both a device and a playbook.");
@@ -74,16 +78,39 @@ const PlaybookSelection = () => {
     };
 
     try {
-      const response = await fetch("http://localhost:5000/api/ssh/run-playbook", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      const response = await fetch(
+        "http://localhost:5000/api/ssh/run-playbook",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        }
+      );
+
+      // Use EventSource for streaming logs
+      const eventSource = new EventSource(
+        `http://localhost:5000/api/ssh/playbook-logs?playbookPath=${encodeURIComponent(
+          selectedPlaybook.fullPath
+        )}`
+      );
+
+      eventSource.onmessage = (event) => {
+        const line = event.data;
+        setTerminalLogs((prev) => [...prev, line]);
+      };
+
+      eventSource.onerror = (err) => {
+        console.error("SSE error:", err);
+        eventSource.close();
+      };
+
       const result = await response.json();
       setRunResult(result);
 
       if (result.success) {
-        alert(`✅ Successfully executed ${selectedPlaybook.name} on ${device.deviceName}`);
+        alert(
+          `✅ Successfully executed ${selectedPlaybook.name} on ${device.deviceName}`
+        );
       } else {
         alert(`❌ Failed: ${result.error || "Unknown error"}`);
       }
@@ -102,7 +129,7 @@ const PlaybookSelection = () => {
         <h1>Cloud Hardening Playbooks</h1>
       </header>
 
-      <div className="dashboard-content-wrapper">
+      <div className="dashboard-content-wrapper playbooks-container">
         <div className="form-panel device-selector-panel">
           <h2>Select Cloud Device</h2>
           <div className="form-group">
@@ -140,9 +167,6 @@ const PlaybookSelection = () => {
               <div className="playbook-badge">
                 {selectedPlaybook.name || selectedPlaybook.fullPath}
               </div>
-              <p className="playbook-description">
-                {selectedPlaybook.description || selectedPlaybook.fullPath}
-              </p>
               <button
                 onClick={handleRunPlaybook}
                 className="primary-button run-button"
@@ -151,19 +175,6 @@ const PlaybookSelection = () => {
                 <FaPlay className="button-icon" />
                 {isRunning ? "Running Hardening..." : "Run Hardening"}
               </button>
-              {runResult && (
-                <div className="playbook-run-result" style={{ marginTop: 16 }}>
-                  {runResult.success ? (
-                    <pre style={{ color: 'green', maxHeight: 200, overflow: 'auto' }}>
-                      {runResult.output}
-                    </pre>
-                  ) : (
-                    <pre style={{ color: 'red', maxHeight: 200, overflow: 'auto' }}>
-                      {runResult.error || 'Unknown error'}
-                    </pre>
-                  )}
-                </div>
-              )}
             </div>
           )}
         </div>
@@ -172,14 +183,38 @@ const PlaybookSelection = () => {
           <h2>Cloud Hardening Playbooks</h2>
           {loading ? (
             <div className="loading-indicator">Loading playbooks...</div>
+          ) : terminalLogs.length > 0 ? (
+            <div className="terminal-output">
+              <h3>
+                <FaTerminal className="panel-icon" /> Playbook Execution Logs
+              </h3>
+              <div
+                className="log-container"
+                style={{
+                  backgroundColor: "#111",
+                  color: "#00ff9f",
+                  fontFamily: "monospace",
+                  padding: "1rem",
+                  height: "400px",
+                  overflowY: "auto",
+                  whiteSpace: "pre-wrap",
+                  borderRadius: "5px",
+                }}
+              >
+                {terminalLogs.map((log, index) => (
+                  <div key={index}>{log}</div>
+                ))}
+              </div>
+            </div>
           ) : (
             <ul className="playbook-list">
               {playbooks.map((playbook, idx) => (
                 <li key={playbook.fullPath || idx} className="playbook-item">
                   <div className="playbook-info">
                     <span className="playbook-name">{playbook.name}</span>
-                    <span className="playbook-category">{playbook.category}</span>
-                    <p className="playbook-description">{playbook.fullPath}</p>
+                    <span className="playbook-category">
+                      {playbook.category}
+                    </span>
                   </div>
                   <div className="playbook-actions">
                     <button

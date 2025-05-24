@@ -32,7 +32,9 @@ const SSHConnection = () => {
           where("email", "==", user.email)
         );
         const querySnapshot = await getDocs(q);
-        setDevices(querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+        setDevices(
+          querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+        );
       }
     };
     fetchDevices();
@@ -42,11 +44,23 @@ const SSHConnection = () => {
     const value = e.target.value;
     setHost(value);
     if (value.length > 0) {
-      const filtered = devices.filter((d) => d.ip && d.ip.startsWith(value));
+      const filtered = devices.filter(
+        (d) =>
+          d.ip &&
+          (d.ip.toLowerCase().includes(value.toLowerCase()) ||
+            (d.deviceName &&
+              d.deviceName.toLowerCase().includes(value.toLowerCase())))
+      );
       setFilteredDevices(filtered);
-      setShowDropdown(filtered.length > 0);
+      setShowDropdown(true);
     } else {
       setShowDropdown(false);
+    }
+  };
+
+  const handleHostFocus = () => {
+    if (host.length > 0 || filteredDevices.length > 0) {
+      setShowDropdown(true);
     }
   };
 
@@ -62,16 +76,16 @@ const SSHConnection = () => {
     setIsConnecting(true);
     setConnectionStatus("Connecting...");
     setLogs([]);
-  
+
     const url = new URL("http://localhost:5000/api/ssh/stream-connect");
     url.searchParams.set("host", host);
     url.searchParams.set("port", port);
     url.searchParams.set("username", username);
     url.searchParams.set("authMethod", authMethod);
     url.searchParams.set("passwordOrKey", passwordOrKey);
-  
+
     const eventSource = new EventSource(url.toString());
-  
+
     eventSource.onmessage = (event) => {
       const line = event.data;
       setLogs((prev) => [...prev, line]);
@@ -82,20 +96,19 @@ const SSHConnection = () => {
         setConnectionStatus("Connection Failed");
       }
     };
-  
+
     eventSource.onerror = (err) => {
       console.error("❌ SSE error:", err);
       eventSource.close();
       setConnectionStatus("Connection Failed");
       setIsConnecting(false);
     };
-  
+
     eventSource.addEventListener("end", () => {
       eventSource.close();
       setIsConnecting(false);
     });
   };
-  
 
   return (
     <DashboardLayout activePage="sshConnection">
@@ -126,16 +139,14 @@ const SSHConnection = () => {
           </div>
 
           <form onSubmit={handleConnect} className="ssh-form">
-            <div className="form-group" style={{ position: 'relative' }}>
+            <div className="form-group" style={{ position: "relative" }}>
               <label>Host/IP Address:</label>
               <input
                 type="text"
                 placeholder="Enter host or IP address"
                 value={host}
                 onChange={handleHostChange}
-                onFocus={() => {
-                  if (host.length > 0 && filteredDevices.length > 0) setShowDropdown(true);
-                }}
+                onFocus={handleHostFocus}
                 className="form-input"
                 required
               />
@@ -143,17 +154,17 @@ const SSHConnection = () => {
                 <div
                   className="device-dropdown"
                   style={{
-                    border: '1px solid #ccc',
-                    background: '#fff',
-                    position: 'absolute',
-                    top: '100%',
+                    border: "1px solid #ccc",
+                    background: "#fff",
+                    position: "absolute",
+                    top: "100%",
                     left: 0,
                     right: 0,
                     zIndex: 10,
-                    maxHeight: '200px',
-                    overflowY: 'auto',
-                    borderRadius: '4px',
-                    boxShadow: '0 4px 8px rgba(0, 0, 0, 0.15)'
+                    maxHeight: "200px",
+                    overflowY: "auto",
+                    borderRadius: "4px",
+                    boxShadow: "0 4px 8px rgba(0, 0, 0, 0.15)",
                   }}
                 >
                   {filteredDevices.length > 0 ? (
@@ -161,21 +172,70 @@ const SSHConnection = () => {
                       <div
                         key={device.id}
                         style={{
-                          padding: '8px 12px',
-                          cursor: 'pointer',
-                          borderBottom: '1px solid #eee'
+                          padding: "8px 12px",
+                          cursor: "pointer",
+                          borderBottom: "1px solid #eee",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          backgroundColor: "#f4f4f4",
+                          transition: "background-color 0.2s ease",
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = "#e0e0e0";
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = "#f4f4f4";
                         }}
                         onClick={() => handleDeviceSelect(device)}
                         onMouseDown={(e) => e.preventDefault()}
                       >
-                        {device.deviceName
-                          ? `${device.deviceName} (${device.ip})`
-                          : device.ip}
+                        <div>
+                          <span
+                            style={{
+                              fontWeight: "bold",
+                              color: "#333",
+                              marginRight: "10px",
+                            }}
+                          >
+                            {device.deviceName || "Unnamed Device"}
+                          </span>
+                          <span
+                            style={{
+                              color: "#0066cc",
+                              fontFamily: "monospace",
+                              backgroundColor: "#f0f0f0",
+                              padding: "2px 4px",
+                              borderRadius: "3px",
+                            }}
+                          >
+                            {device.ip}
+                          </span>
+                        </div>
+                        {device.port && (
+                          <span
+                            style={{
+                              color: "#666",
+                              fontSize: "0.8em",
+                              backgroundColor: "#e6e6e6",
+                              padding: "2px 4px",
+                              borderRadius: "3px",
+                            }}
+                          >
+                            Port: {device.port}
+                          </span>
+                        )}
                       </div>
                     ))
                   ) : (
-                    <div style={{ padding: '8px', color: '#666' }}>
-                      No matching devices.
+                    <div
+                      style={{
+                        padding: "8px",
+                        color: "#666",
+                        textAlign: "center",
+                        fontStyle: "italic",
+                      }}
+                    >
+                      No matching devices found
                     </div>
                   )}
                 </div>
@@ -265,7 +325,7 @@ const SSHConnection = () => {
               border: "1px solid #333",
               fontFamily: "monospace",
               whiteSpace: "pre-wrap",
-              fontSize: "0.9em"
+              fontSize: "0.9em",
             }}
           >
             {logs.map((line, idx) => (
@@ -275,7 +335,14 @@ const SSHConnection = () => {
           {sshCommand && (
             <div className="ssh-command-display">
               <h3>SSH Command:</h3>
-              <pre style={{ backgroundColor: "#222", padding: "10px", borderRadius: "4px", color: "#fff" }}>
+              <pre
+                style={{
+                  backgroundColor: "#222",
+                  padding: "10px",
+                  borderRadius: "4px",
+                  color: "#fff",
+                }}
+              >
                 {sshCommand}
               </pre>
             </div>
