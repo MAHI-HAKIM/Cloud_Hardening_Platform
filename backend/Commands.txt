@@ -1,7 +1,65 @@
 /********* FAIL2BAN MANUAL Checks *****************/
 
+COMAND------------------------------------
 systemctl list-unit-files | grep fail2ban 
 dpkg -l | grep fail2ban
+COMAND-----------------------------------------
+
+COMMAND 2---------------------------------
+echo "FAIL2BAN STATUS:"; systemctl is-active fail2ban; systemctl is-enabled fail2ban; echo "SSH JAIL CONFIG:"; cat /etc/fail2ban/jail.d/ssh.conf 2>/dev/null || echo "No SSH jail config"; echo "FAIL2BAN JAILS:"; fail2ban-client status 2>/dev/null || echo "fail2ban not responding"; echo "SSH JAIL STATUS:"; fail2ban-client status ssh 2>/dev/null || echo "SSH jail not active"
+COMMAND 2-------------------------------------------
+
+
+EXPECTED BEFORE HARDENING------------------------------
+
+FAIL2BAN STATUS:
+inactive
+disabled
+
+SSH JAIL CONFIG:
+No SSH jail config
+
+FAIL2BAN JAILS:
+fail2ban not responding
+
+SSH JAIL STATUS:
+SSH jail not active
+---------------------------------------------------------
+
+EXPECTED AFTER HARDENING---------------------------------
+FAIL2BAN STATUS:
+active
+enabled
+
+SSH JAIL CONFIG:
+[ssh]
+enabled = true
+port = ssh
+filter = sshd
+logpath = /var/log/auth.log
+maxretry = 3
+bantime = 3600
+findtime = 600
+
+FAIL2BAN JAILS:
+Status
+|- Number of jail:	1
+`- Jail list:	ssh
+
+SSH JAIL STATUS:
+Status for the jail: ssh
+|- Filter
+|  |- Currently failed:	0
+|  |- Total failed:	0
+|  `- File list:	/var/log/auth.log
+`- Actions
+   |- Currently banned:	0
+   |- Total banned:	0
+   `- Banned IP list:
+
+-------------------------------------------------------------
+
+
 
 /--------------------------------------------/
 
@@ -51,13 +109,52 @@ criminal prosecution.
 /*************NETWORK SECURITY ***************************************/
 
 COMMAND -------------------
-echo "NETWORK:"; sysctl net.ipv4.ip_forward net.ipv4.tcp_syncookies net.ipv4.conf.all.accept_redirects net.ipv4.icmp_echo_ignore_broadcasts; echo "PASSWORD:"; grep -E "^(PASS_MIN_DAYS|PASS_MAX_DAYS|PASS_MIN_LEN|PASS_WARN_AGE)" /etc/login.defs; echo "FIREWALL:"; ufw status; echo "SERVICES:"; systemctl is-active rsyslog systemd-journald; echo "LOGROTATE:"; ls -la /etc/logrotate.d/security-logs 2>/dev/null || echo "No security log config"
+echo "NETWORK:"; sysctl net.ipv4.ip_forward net.ipv4.tcp_syncookies net.ipv4.conf.all.accept_redirects net.ipv4.icmp_echo_ignore_broadcasts; echo "PASSWORD:"; grep -E "^(PASS_MIN_DAYS|PASS_MAX_DAYS|PASS_MIN_LEN|PASS_WARN_AGE)" /etc/login.defs; echo "FIREWALL:"; ufw status; echo "CUSTOM FILES:"; ls -la /etc/sysctl.d/99-security.conf /etc/logrotate.d/security-logs 2>/dev/null || echo "Custom files removed"
 COMMAND ------------------
 
 
 
 EXPECTED RESULTS BEFORE HARDENING----------------------------------------
+NETWORK:
+net.ipv4.ip_forward = 1
+net.ipv4.tcp_syncookies = 1
+net.ipv4.conf.all.accept_redirects = 1
+net.ipv4.icmp_echo_ignore_broadcasts = 0
+PASSWORD:
+PASS_MAX_DAYS 99999
+PASS_MIN_DAYS 0
+PASS_WARN_AGE 7
+PASS_MIN_LEN 5
+FIREWALL:
+Status: inactive
+CUSTOM FILES:
+Custom files removed
 
+
+EXPECTED RESULTS AFTER HARDENING--------------------------
+NETWORK:
+net.ipv4.ip_forward = 0
+net.ipv4.tcp_syncookies = 1
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.icmp_echo_ignore_broadcasts = 1
+PASSWORD:
+PASS_MAX_DAYS 90
+PASS_MIN_DAYS 1
+PASS_WARN_AGE 7
+PASS_MIN_LEN 8
+FIREWALL:
+Status: active
+
+To                         Action      From
+--                         ------      ----
+22/tcp                     ALLOW       Anywhere                   # SSH Access
+22/tcp (v6)                ALLOW       Anywhere (v6)              # SSH Access
+
+CUSTOM FILES:
+-rw-r--r-- 1 root root 260 May 25 17:45 /etc/logrotate.d/security-logs
+-rw-r--r-- 1 root root 368 May 25 17:45 /etc/sysctl.d/99-security.conf
+
+-----------------------------------------------------------------------------------------------------
 
 
 
