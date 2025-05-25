@@ -60,12 +60,12 @@ function Sidebar({ username, activePage }) {
           <FaShieldAlt /> Hardening
         </button>
 
-        <button
+        {/* <button
           onClick={() => navigate("/audit")}
           className={activePage === "audit" ? "active" : ""}
         >
           <FaListAlt /> Results/Audits
-        </button>
+        </button> */}
       </nav>
 
       <button onClick={handleLogout} className="logout-button">
