@@ -6,18 +6,29 @@
     - name: Create custom banner text
       copy:
         content: |
-          🚨 Unauthorized access is prohibited.
-          🔐 All activities are monitored.
+          +=======================================================================+
+          ||                     🚨 SECURITY WARNING 🚨                           ||
+          +=======================================================================+
+          ||                                                                      ||
+          ||  UNAUTHORIZED ACCESS IS STRICTLY PROHIBITED                          ||
+          ||                                                                      ||
+          ||  * This system is the property of the organization                   ||
+          ||  * All activities are continuously monitored and recorded            ||
+          ||  * Unauthorized access will result in legal prosecution              ||
+          ||                                                                      ||
+          ||  VIOLATORS WILL BE PROSECUTED TO THE FULL EXTENT OF THE LAW          ||
+          ||                                                                      ||
+          +=======================================================================+
         dest: /etc/issue.net
         owner: root
         group: root
-        mode: '0644'
+        mode: "0644"
 
     - name: Enable banner in SSH config
       lineinfile:
         path: /etc/ssh/sshd_config
-        regexp: '^#?Banner'
-        line: 'Banner /etc/issue.net'
+        regexp: "^#?Banner"
+        line: "Banner /etc/issue.net"
         create: yes
 
     - name: Restart SSH service
