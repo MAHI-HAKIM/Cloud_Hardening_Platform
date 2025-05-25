@@ -6,3 +6,58 @@ dpkg -l | grep fail2ban
 /--------------------------------------------/
 
 
+/******************SHH SECURITY *******************/
+COMMAND-------------------------------------------
+echo "SSH CONFIG:"; grep -E "^(MaxAuthTries|ClientAliveInterval|ClientAliveCountMax|LoginGraceTime|X11Forwarding|UseDNS|Banner)" /etc/ssh/sshd_config; echo "FILE PERMS:"; ls -l /etc/passwd /etc/shadow /etc/group /etc/ssh/sshd_config; echo "BANNER:"; cat /etc/issue.net 2>/dev/null || echo "No banner"
+COMAND---------------------------------------------
+
+-Expected Results before Hardening---------------------------------------------
+SSH CONFIG:
+FILE PERMS:
+-rw-r--r-- 1 root root    768 Jul  1  2024 /etc/group
+-rw-r--r-- 1 root root   1717 May 25 14:52 /etc/passwd
+-rw-r----- 1 root shadow 1001 May 25 14:52 /etc/shadow
+-rw-r--r-- 1 root root   3226 May 25 17:22 /etc/ssh/sshd_config
+BANNER:
+No banner
+
+
+---Expected Results after SSH Hardeningn ------------------------------------------
+SSH CONFIG:
+LoginGraceTime 60
+MaxAuthTries 3
+X11Forwarding no
+ClientAliveInterval 300
+ClientAliveCountMax 2
+UseDNS no
+Banner /etc/issue.net
+FILE PERMS:
+-rw-r--r-- 1 root root    768 Jul  1  2024 /etc/group
+-rw-r--r-- 1 root root   1717 May 25 14:52 /etc/passwd
+-rw-r----- 1 root shadow 1001 May 25 14:52 /etc/shadow
+-rw------- 1 root root   3240 May 25 17:21 /etc/ssh/sshd_config
+BANNER:
+**************************************************************************
+AUTHORIZED ACCESS ONLY
+
+This system is for authorized users only. All activities may be monitored
+and recorded. Unauthorized access is prohibited and may be subject to
+criminal prosecution.
+**************************************************************************
+/---------------------------------------------------------------------------------------------/
+
+
+
+/*************NETWORK SECURITY ***************************************/
+
+COMMAND -------------------
+echo "NETWORK:"; sysctl net.ipv4.ip_forward net.ipv4.tcp_syncookies net.ipv4.conf.all.accept_redirects net.ipv4.icmp_echo_ignore_broadcasts; echo "PASSWORD:"; grep -E "^(PASS_MIN_DAYS|PASS_MAX_DAYS|PASS_MIN_LEN|PASS_WARN_AGE)" /etc/login.defs; echo "FIREWALL:"; ufw status; echo "SERVICES:"; systemctl is-active rsyslog systemd-journald; echo "LOGROTATE:"; ls -la /etc/logrotate.d/security-logs 2>/dev/null || echo "No security log config"
+COMMAND ------------------
+
+
+
+EXPECTED RESULTS BEFORE HARDENING----------------------------------------
+
+
+
+

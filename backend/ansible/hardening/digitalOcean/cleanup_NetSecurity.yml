@@ -1,10 +1,10 @@
 ---
-- name: "CLEANUP: Network Security & Service Management"
+- name: "CLEANUP: Undo Network Security & Service Management Hardening"
   hosts: all
   become: yes
   tasks:
     # Restore Network Security Settings to defaults
-    - name: "Restore Network Security Settings to Defaults"
+    - name: "Restore Network Security Settings to defaults"
       sysctl:
         name: "{{ item.name }}"
         value: "{{ item.value }}"
@@ -12,41 +12,26 @@
         reload: yes
         sysctl_file: /etc/sysctl.d/99-security.conf
       loop:
-        - { name: "net.ipv4.ip_forward", value: "0" } # Keep disabled (default)
+        - { name: "net.ipv4.ip_forward", value: "1" } # Re-enable forwarding
         - { name: "net.ipv4.tcp_syncookies", value: "1" } # Keep enabled (good default)
-        - { name: "net.ipv4.conf.all.accept_redirects", value: "1" } # Default
-        - { name: "net.ipv4.conf.default.accept_redirects", value: "1" } # Default
-        - { name: "net.ipv4.conf.all.send_redirects", value: "1" } # Default
-        - { name: "net.ipv4.conf.default.send_redirects", value: "1" } # Default
-        - { name: "net.ipv4.conf.all.accept_source_route", value: "1" } # Default
-        - { name: "net.ipv4.conf.default.accept_source_route", value: "1" } # Default
-        - { name: "net.ipv4.icmp_echo_ignore_broadcasts", value: "0" } # Default
-        - { name: "net.ipv4.icmp_ignore_bogus_error_responses", value: "0" } # Default
-      register: network_restore
+        - { name: "net.ipv4.conf.all.accept_redirects", value: "1" }
+        - { name: "net.ipv4.conf.default.accept_redirects", value: "1" }
+        - { name: "net.ipv4.conf.all.send_redirects", value: "1" }
+        - { name: "net.ipv4.conf.default.send_redirects", value: "1" }
+        - { name: "net.ipv4.conf.all.accept_source_route", value: "1" }
+        - { name: "net.ipv4.conf.default.accept_source_route", value: "1" }
+        - { name: "net.ipv4.icmp_echo_ignore_broadcasts", value: "0" }
+        - { name: "net.ipv4.icmp_ignore_bogus_error_responses", value: "0" }
+      register: network_cleanup
 
-    - name: "Remove custom sysctl security configuration file"
+    # Remove custom sysctl file
+    - name: "Remove custom security sysctl configuration"
       file:
         path: /etc/sysctl.d/99-security.conf
         state: absent
       register: sysctl_file_removed
 
-    # Re-enable previously disabled services (if needed)
-    - name: "Check if services were disabled and re-enable them"
-      systemd:
-        name: "{{ item }}"
-        enabled: yes
-        state: started
-      loop:
-        - telnet
-        - rsh
-        - rlogin
-        - tftp
-        - finger
-        - talk
-      register: services_restored
-      ignore_errors: yes
-
-    # Restore Password Policy to Ubuntu defaults
+    # Restore Password Policy to defaults
     - name: "Restore password aging policy to defaults"
       lineinfile:
         path: /etc/login.defs
@@ -55,84 +40,68 @@
         state: present
         backup: yes
       loop:
-        - { regexp: "^PASS_MIN_DAYS", line: "PASS_MIN_DAYS 0" }
-        - { regexp: "^PASS_MAX_DAYS", line: "PASS_MAX_DAYS 99999" }
-        - { regexp: "^PASS_MIN_LEN", line: "PASS_MIN_LEN 5" }
-        - { regexp: "^PASS_WARN_AGE", line: "PASS_WARN_AGE 7" }
+        - { regexp: "^PASS_MIN_DAYS", line: "PASS_MIN_DAYS 0" } # Default: 0
+        - { regexp: "^PASS_MAX_DAYS", line: "PASS_MAX_DAYS 99999" } # Default: 99999
+        - { regexp: "^PASS_MIN_LEN", line: "PASS_MIN_LEN 5" } # Default: 5
+        - { regexp: "^PASS_WARN_AGE", line: "PASS_WARN_AGE 7" } # Keep 7 (reasonable)
       register: password_policy_restored
 
     # Remove custom log rotation configuration
-    - name: "Remove custom security logs rotation"
+    - name: "Remove custom security log rotation"
       file:
         path: /etc/logrotate.d/security-logs
         state: absent
       register: logrotate_removed
 
-    # Disable UFW firewall (restore to original state)
+    # Disable and reset UFW firewall
     - name: "Disable UFW firewall"
       ufw:
         state: disabled
       register: ufw_disabled
       ignore_errors: yes
 
-    - name: "Reset UFW rules to default"
+    - name: "Reset UFW to factory defaults"
       ufw:
         state: reset
       register: ufw_reset
       ignore_errors: yes
 
-    # Optional: Remove UFW package (uncomment if you want complete removal)
-    # - name: "Remove UFW package"
-    #   package:
-    #     name: ufw
-    #     state: absent
-    #   register: ufw_removed
+    # Note: We don't re-enable risky services as they should stay disabled for security
+    # Note: We keep logging services running as they're essential
 
-    # Verification checks
-    - name: "Check current sysctl network settings"
-      command: sysctl net.ipv4.conf.all.accept_redirects net.ipv4.conf.all.send_redirects
-      register: sysctl_check
-      ignore_errors: yes
-
-    - name: "Check UFW status"
-      command: ufw status
-      register: ufw_status_check
-      ignore_errors: yes
-
-    - name: "Check password policy settings"
-      command: grep -E "PASS_(MIN|MAX)_DAYS|PASS_(MIN_LEN|WARN_AGE)" /etc/login.defs
-      register: password_check
-      ignore_errors: yes
+    - name: "Reload sysctl settings"
+      command: sysctl --system
+      register: sysctl_reloaded
 
     - name: "Display Cleanup Results"
       debug:
         msg: |
-          =================== NETWORK SECURITY CLEANUP COMPLETE ===================
+          =================== HARDENING 2 CLEANUP COMPLETE ===================
 
           NETWORK SECURITY RESTORED:
+          - IP Forwarding: {{ 'ENABLED' if network_cleanup.changed else 'ALREADY DEFAULT' }}
+          - ICMP Redirects: {{ 'ALLOWED' if network_cleanup.changed else 'ALREADY DEFAULT' }}
+          - Source Routing: {{ 'ENABLED' if network_cleanup.changed else 'ALREADY DEFAULT' }}
+          - ICMP Broadcast: {{ 'RESPONDING' if network_cleanup.changed else 'ALREADY DEFAULT' }}
           - Custom sysctl file: {{ 'REMOVED' if sysctl_file_removed.changed else 'NOT FOUND' }}
-          - Network settings: {{ 'RESTORED TO DEFAULTS' if network_restore.changed else 'UNCHANGED' }}
-          - Current redirects setting: {{ sysctl_check.stdout_lines[0] if sysctl_check.stdout_lines else 'Could not check' }}
-
-          SERVICES:
-          - Services checked for restore: {{ services_restored.results | length }}
-          - Note: Only services that existed will be restored
 
           PASSWORD POLICY RESTORED:
-          - Password aging: {{ 'RESTORED TO DEFAULTS' if password_policy_restored.changed else 'UNCHANGED' }}
-          - Current settings preview: {{ password_check.stdout_lines[:2] if password_check.stdout_lines else 'Could not check' }}
+          - Min password age: {{ 'RESTORED (0 days)' if password_policy_restored.changed else 'ALREADY DEFAULT' }}
+          - Max password age: {{ 'RESTORED (99999 days)' if password_policy_restored.changed else 'ALREADY DEFAULT' }}
+          - Min password length: {{ 'RESTORED (5 chars)' if password_policy_restored.changed else 'ALREADY DEFAULT' }}
 
           LOGGING:
           - Custom log rotation: {{ 'REMOVED' if logrotate_removed.changed else 'NOT FOUND' }}
-          - System logging services remain active
+          - System logging: KEPT RUNNING (Essential service)
 
           FIREWALL:
           - UFW status: {{ 'DISABLED' if ufw_disabled.changed else 'ALREADY DISABLED' }}
-          - UFW rules: {{ 'RESET' if ufw_reset.changed else 'ALREADY RESET' }}
-          - Current UFW status: {{ ufw_status_check.stdout.split('\n')[0] if ufw_status_check.stdout else 'Could not check' }}
+          - UFW rules: {{ 'RESET' if ufw_reset.changed else 'ALREADY CLEAN' }}
 
-          =====================================================================
+          SERVICES:
+          - Risky services: LEFT DISABLED (Security best practice)
 
-    - name: "Apply sysctl changes immediately"
-      command: sysctl -p
-      ignore_errors: yes
+          SYSTEM:
+          - Sysctl settings: {{ 'RELOADED' if sysctl_reloaded.rc == 0 else 'RELOAD FAILED' }}
+
+          ==========================================================
