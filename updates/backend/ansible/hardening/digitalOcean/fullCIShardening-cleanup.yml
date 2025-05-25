@@ -1,0 +1,111 @@
+---
+- name: CIS Benchmark Reversal - Undo Cloud Linux Instance Configurations
+  hosts: all
+  gather_facts: yes
+  become: yes
+  vars:
+    # Explicitly set Python interpreter to avoid discovery warnings
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  tasks:
+    - name: CIS 1.1.1 Reversal - Remove SSH Banner configuration
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^Banner\s+/etc/issue\.net'
+        state: absent
+        backup: yes
+      notify: restart sshd
+      register: ssh_banner_removed
+
+    - name: Report SSH Banner reversal
+      debug:
+        msg: >
+          CIS 1.1.1 Reversal - SSH Banner: {{ '✅ REMOVED' if ssh_banner_removed.changed else '⚠ NOT PRESENT' }}
+
+    - name: CIS 1.3.1 Reversal - Clear /etc/motd content
+      copy:
+        content: ""
+        dest: /etc/motd
+        owner: root
+        group: root
+        mode: "0644"
+        backup: yes
+      register: motd_cleared
+
+    - name: Report MOTD reversal
+      debug:
+        msg: >
+          CIS 1.3.1 Reversal - MOTD: {{ '✅ CLEARED' if motd_cleared.changed else '⚠ ALREADY EMPTY' }}
+
+    - name: CIS 1.3.2 Reversal - Clear /etc/issue content
+      copy:
+        content: ""
+        dest: /etc/issue
+        owner: root
+        group: root
+        mode: "0644"
+        backup: yes
+      register: issue_cleared
+
+    - name: Report /etc/issue reversal
+      debug:
+        msg: >
+          CIS 1.3.2 Reversal - /etc/issue: {{ '✅ CLEARED' if issue_cleared.changed else '⚠ ALREADY EMPTY' }}
+
+    - name: CIS 1.3.3 Reversal - Clear /etc/issue.net content
+      copy:
+        content: ""
+        dest: /etc/issue.net
+        owner: root
+        group: root
+        mode: "0644"
+        backup: yes
+      register: issue_net_cleared
+
+    - name: Report /etc/issue.net reversal
+      debug:
+        msg: >
+          CIS 1.3.3 Reversal - /etc/issue.net: {{ '✅ CLEARED' if issue_net_cleared.changed else '⚠ ALREADY EMPTY' }}
+
+    - name: Check for additional SSH hardening configurations to reverse
+      shell: |
+        grep -E '^(Protocol|LogLevel|X11Forwarding|MaxAuthTries|IgnoreRhosts|HostbasedAuthentication|PermitRootLogin|PermitEmptyPasswords|PermitUserEnvironment|Ciphers|MACs|KexAlgorithms|ClientAliveInterval|ClientAliveCountMax|LoginGraceTime|AllowUsers|AllowGroups|DenyUsers|DenyGroups)' /etc/ssh/sshd_config || true
+      register: ssh_hardening_check
+      changed_when: false
+      failed_when: false
+
+    - name: Display current SSH hardening configurations
+      debug:
+        msg: |
+          Current SSH hardening configurations found:
+          {{ ssh_hardening_check.stdout_lines | join('\n') if ssh_hardening_check.stdout_lines else 'None found' }}
+      when: ssh_hardening_check.stdout_lines is defined
+
+    - name: Create backup of current SSH configuration
+      copy:
+        src: /etc/ssh/sshd_config
+        dest: "/etc/ssh/sshd_config.backup.{{ ansible_date_time.epoch }}"
+        remote_src: yes
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Optional - Reset SSH configuration to distribution defaults (commented out for safety)
+      debug:
+        msg: |
+          WARNING: To fully reset SSH configuration, you may need to:
+          1. Reinstall openssh-server package to get default config
+          2. Or manually review and remove CIS hardening settings
+          3. Current config backed up to /etc/ssh/sshd_config.backup.{{ ansible_date_time.epoch }}
+
+  handlers:
+    - name: restart sshd
+      service:
+        name: sshd
+        state: restarted
+      listen: restart sshd
+
+    - name: validate ssh config
+      shell: sshd -t
+      register: ssh_config_test
+      failed_when: ssh_config_test.rc != 0
+      listen: restart sshd
