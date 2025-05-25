@@ -1,235 +1,131 @@
 ---
-- name: CIS Cloud Hardening - Aligned with Audit
+- name: CIS Benchmark Audit - Cloud Linux Instance
   hosts: all
-  become: yes
   gather_facts: yes
-
+  become: yes
   vars:
-    # Remove hardcoded Python interpreter - let Ansible auto-detect
-    ssh_config_backup: "/etc/ssh/sshd_config.backup.{{ ansible_date_time.epoch }}"
+    # Explicitly set Python interpreter to avoid discovery warnings
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
   tasks:
-    # Pre-hardening backup
-    - name: Create SSH config backup
-      copy:
-        src: /etc/ssh/sshd_config
-        dest: "{{ ssh_config_backup }}"
-        remote_src: yes
-        backup: yes
-      tags: backup
+    - name: CIS 1.1.1 - Check SSH Banner configuration
+      shell: grep '^Banner /etc/issue.net' /etc/ssh/sshd_config
+      register: ssh_banner
+      changed_when: false
+      failed_when: false
 
-    # CIS 1.1.1 - Set SSH Banner
-    - name: Ensure /etc/issue.net exists with proper banner
-      copy:
-        dest: /etc/issue.net
-        content: |
-          ***************************************************************************
-                              AUTHORIZED ACCESS ONLY
+    - name: Report SSH Banner compliance
+      debug:
+        msg: >
+          CIS 1.1.1 - SSH Banner: {{ '✅ COMPLIANT' if ssh_banner.rc == 0 else '❌ NOT COMPLIANT' }}
 
-          This system is for the use of authorized users only. Individuals using 
-          this computer system without authority or in excess of their authority 
-          are subject to having all their activities on this system monitored and 
-          recorded by system personnel.
+    - name: CIS 1.3.1 - Check if /etc/motd is configured
+      stat:
+        path: /etc/motd
+      register: motd_file
 
-          Anyone using this system expressly consents to such monitoring and is 
-          advised that if such monitoring reveals possible evidence of criminal 
-          activity, system personnel may provide the evidence of such monitoring 
-          to law enforcement officials.
-          ***************************************************************************
-        owner: root
-        group: root
-        mode: "0644"
-      tags: ssh_banner
+    - name: Check MOTD content
+      shell: test -s /etc/motd
+      register: motd_content
+      changed_when: false
+      failed_when: false
+      when: motd_file.stat.exists
 
-    - name: Configure SSH to use banner file
-      lineinfile:
-        path: /etc/ssh/sshd_config
-        regexp: "^#?Banner"
-        line: "Banner /etc/issue.net"
-        backup: yes
-        validate: "/usr/sbin/sshd -t -f %s"
-      notify: restart_ssh
-      tags: ssh_banner
+    - name: Report MOTD compliance
+      debug:
+        msg: >
+          CIS 1.3.1 - MOTD: {{ '✅ COMPLIANT' if motd_file.stat.exists and motd_content.rc == 0 else '❌ NOT COMPLIANT' }}
 
-    # CIS 1.3.1 - MOTD content
-    - name: Ensure /etc/motd contains welcome message
-      copy:
-        dest: /etc/motd
-        content: |
-          Welcome to {{ ansible_hostname }}
+    - name: CIS 3.1.1 - Check IP forwarding setting
+      shell: grep '^net.ipv4.ip_forward = 0' /etc/sysctl.conf
+      register: ip_forward
+      changed_when: false
+      failed_when: false
 
-          This system is monitored and managed according to security policies.
-          All activities are logged and monitored.
+    - name: Check current IP forwarding runtime value
+      shell: sysctl net.ipv4.ip_forward | grep 'net.ipv4.ip_forward = 0'
+      register: ip_forward_runtime
+      changed_when: false
+      failed_when: false
 
-          Unauthorized access is prohibited.
+    - name: Report IP forwarding compliance
+      debug:
+        msg: >
+          CIS 3.1.1 - IP Forwarding: {{ '✅ COMPLIANT' if ip_forward.rc == 0 and ip_forward_runtime.rc == 0 else '❌ NOT COMPLIANT' }}
 
-          Last updated: {{ ansible_date_time.date }}
-        owner: root
-        group: root
-        mode: "0644"
-      tags: motd
+    - name: CIS 4.1.1.1 - Check if auditd is installed
+      shell: which auditctl
+      register: auditd_installed
+      changed_when: false
+      failed_when: false
 
-    # CIS 3.1.1 - Disable IP forwarding
-    - name: Disable IP forwarding (runtime)
-      sysctl:
-        name: net.ipv4.ip_forward
-        value: "0"
-        state: present
-        sysctl_set: yes
-        reload: yes
-      tags: ip_forward
+    - name: Check if auditd service is running
+      shell: systemctl is-active auditd
+      register: auditd_running
+      changed_when: false
+      failed_when: false
 
-    - name: Ensure IP forwarding disabled in sysctl.conf
-      lineinfile:
-        path: /etc/sysctl.conf
-        regexp: '^#?net\.ipv4\.ip_forward'
-        line: "net.ipv4.ip_forward = 0"
-        state: present
-        backup: yes
-      tags: ip_forward
+    - name: Report auditd compliance
+      debug:
+        msg: >
+          CIS 4.1.1.1 - auditd: {{ '✅ COMPLIANT' if auditd_installed.rc == 0 and auditd_running.stdout == 'active' else '❌ NOT COMPLIANT' }}
 
-    # CIS 4.1.1.1 - Install and configure auditd
-    - name: Install auditd package
-      package:
-        name:
-          - auditd
-          - audispd-plugins
-        state: present
-      tags: auditd
+    - name: CIS 5.2.4 - Check SSH root login setting
+      shell: grep '^PermitRootLogin no' /etc/ssh/sshd_config
+      register: root_login
+      changed_when: false
+      failed_when: false
 
-    - name: Ensure auditd service is enabled and started
-      systemd:
-        name: auditd
-        enabled: yes
-        state: started
-        daemon_reload: yes
-      tags: auditd
+    - name: Report SSH root login compliance
+      debug:
+        msg: >
+          CIS 5.2.4 - Root Login Disabled: {{ '✅ COMPLIANT' if root_login.rc == 0 else '❌ NOT COMPLIANT' }}
 
-    - name: Configure basic audit rules
-      blockinfile:
-        path: /etc/audit/rules.d/audit.rules
-        block: |
-          # Basic CIS audit rules
-          -w /etc/passwd -p wa -k identity
-          -w /etc/group -p wa -k identity
-          -w /etc/shadow -p wa -k identity
-          -w /etc/sudoers -p wa -k identity
-          -w /var/log/faillog -p wa -k logins
-          -w /var/log/lastlog -p wa -k logins
-        create: yes
-        backup: yes
-      notify: restart_auditd
-      tags: auditd
+    - name: CIS 5.2.5 - Check SSH log level setting
+      shell: grep '^LogLevel VERBOSE' /etc/ssh/sshd_config
+      register: ssh_log_level
+      changed_when: false
+      failed_when: false
 
-    # CIS 5.2.4 - Disable SSH root login
-    - name: Disable SSH root login
-      lineinfile:
-        path: /etc/ssh/sshd_config
-        regexp: "^#?PermitRootLogin"
-        line: "PermitRootLogin no"
-        state: present
-        backup: yes
-        validate: "/usr/sbin/sshd -t -f %s"
-      notify: restart_ssh
-      tags: ssh_security
+    - name: Report SSH LogLevel compliance
+      debug:
+        msg: >
+          CIS 5.2.5 - LogLevel VERBOSE: {{ '✅ COMPLIANT' if ssh_log_level.rc == 0 else '❌ NOT COMPLIANT' }}
 
-    # CIS 5.2.5 - Set SSH log level
-    - name: Set SSH LogLevel to VERBOSE
-      lineinfile:
-        path: /etc/ssh/sshd_config
-        regexp: "^#?LogLevel"
-        line: "LogLevel VERBOSE"
-        state: present
-        backup: yes
-        validate: "/usr/sbin/sshd -t -f %s"
-      notify: restart_ssh
-      tags: ssh_security
-
-    # Additional SSH hardening
-    - name: Additional SSH security settings
-      blockinfile:
-        path: /etc/ssh/sshd_config
-        block: |
-          # Additional CIS SSH hardening
-          Protocol 2
-          MaxAuthTries 3
-          ClientAliveInterval 300
-          ClientAliveCountMax 0
-          PermitEmptyPasswords no
-          PermitUserEnvironment no
-        marker: "# {mark} ANSIBLE MANAGED CIS HARDENING"
-        backup: yes
-        validate: "/usr/sbin/sshd -t -f %s"
-      notify: restart_ssh
-      tags: ssh_security
-
-    # CIS 6.1.10 - Fix world-writable files
-    - name: Find world-writable files (excluding expected ones)
-      shell: |
-        find / -xdev -type f -perm -0002 \
-        ! -path "/proc/*" \
-        ! -path "/sys/*" \
-        ! -path "/dev/*" \
-        ! -path "/tmp/*" \
-        ! -path "/var/tmp/*" \
-        -print 2>/dev/null
+    - name: CIS 6.1.10 - Check for world writable files
+      shell: find / -xdev -type f -perm -0002 -print 2>/dev/null | head -10
       register: world_writable_files
       changed_when: false
       failed_when: false
-      tags: file_permissions
 
-    - name: Remove world-writable permissions from files
-      file:
-        path: "{{ item }}"
-        mode: "o-w"
-      loop: "{{ world_writable_files.stdout_lines }}"
-      when:
-        - world_writable_files.stdout_lines is defined
-        - world_writable_files.stdout_lines | length > 0
-      tags: file_permissions
-
-    - name: Report fixed world-writable files
-      debug:
-        msg: "Fixed {{ world_writable_files.stdout_lines | length }} world-writable files"
-      when:
-        - world_writable_files.stdout_lines is defined
-        - world_writable_files.stdout_lines | length > 0
-      tags: file_permissions
-
-    # Verification tasks
-    - name: Verify SSH configuration syntax
-      command: /usr/sbin/sshd -t
+    - name: Count world writable files
+      shell: find / -xdev -type f -perm -0002 -print 2>/dev/null | wc -l
+      register: world_writable_count
       changed_when: false
-      tags: verification
+      failed_when: false
 
-    - name: Display hardening completion message
+    - name: Report world writable files
+      debug:
+        msg: >
+          CIS 6.1.10 - World Writable Files: {{ '✅ COMPLIANT' if world_writable_count.stdout|int == 0 else '❌ FOUND ' ~ world_writable_count.stdout ~ ' files' }}
+
+    - name: Show sample world writable files (if any)
+      debug:
+        msg: "Sample world writable files: {{ world_writable_files.stdout_lines[:5] }}"
+      when: world_writable_count.stdout|int > 0
+
+    # Summary Report
+    - name: Generate compliance summary
       debug:
         msg: |
           ===========================================
-          CIS HARDENING COMPLETED SUCCESSFULLY
+          CIS BENCHMARK COMPLIANCE SUMMARY
           ===========================================
-          ✅ SSH Banner configured
-          ✅ MOTD message set
-          ✅ IP forwarding disabled  
-          ✅ Auditd installed and configured
-          ✅ SSH root login disabled
-          ✅ SSH logging set to VERBOSE
-          ✅ World-writable files fixed
-          ✅ Additional SSH hardening applied
-
-          SSH config backup: {{ ssh_config_backup }}
+          SSH Banner (1.1.1):     {{ '✅ PASS' if ssh_banner.rc == 0 else '❌ FAIL' }}
+          MOTD Config (1.3.1):    {{ '✅ PASS' if motd_file.stat.exists and motd_content.rc == 0 else '❌ FAIL' }}
+          IP Forward (3.1.1):     {{ '✅ PASS' if ip_forward.rc == 0 and ip_forward_runtime.rc == 0 else '❌ FAIL' }}
+          Auditd (4.1.1.1):       {{ '✅ PASS' if auditd_installed.rc == 0 and auditd_running.stdout == 'active' else '❌ FAIL' }}
+          SSH Root (5.2.4):       {{ '✅ PASS' if root_login.rc == 0 else '❌ FAIL' }}
+          SSH LogLevel (5.2.5):   {{ '✅ PASS' if ssh_log_level.rc == 0 else '❌ FAIL' }}
+          World Writable (6.1.10): {{ '✅ PASS' if world_writable_count.stdout|int == 0 else '❌ FAIL' }}
           ===========================================
-      tags: always
-
-  handlers:
-    - name: restart_ssh
-      systemd:
-        name: sshd
-        state: restarted
-      listen: restart_ssh
-
-    - name: restart_auditd
-      systemd:
-        name: auditd
-        state: restarted
-      listen: restart_auditd
