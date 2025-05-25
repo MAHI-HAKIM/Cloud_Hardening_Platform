@@ -1,26 +1,80 @@
 ---
-- name: Set custom login banner
+- name: Set safe login banner
   hosts: all
   become: yes
+  gather_facts: yes
+
+  vars:
+    backup_timestamp: "{{ ansible_date_time.epoch }}"
+
   tasks:
-    - name: Create custom banner text
+    - name: Backup current SSH configuration
+      copy:
+        src: /etc/ssh/sshd_config
+        dest: "/root/sshd_config.backup.{{ backup_timestamp }}"
+        remote_src: yes
+
+    - name: Create banner text with emojis
       copy:
         content: |
-          🚨 Unauthorized access is prohibited.
-          🔐 All activities are monitored.
+          🚨 WARNING: Unauthorized access is prohibited! 🚨
+          🔒 All activities are monitored and logged. 🔒
+          👁️  You are being watched. 👁️
         dest: /etc/issue.net
         owner: root
         group: root
-        mode: '0644'
+        mode: "0644"
+        backup: yes
 
-    - name: Enable banner in SSH config
+    - name: Enable banner in SSH config (with validation)
       lineinfile:
         path: /etc/ssh/sshd_config
-        regexp: '^#?Banner'
-        line: 'Banner /etc/issue.net'
-        create: yes
+        regexp: "^#?Banner"
+        line: "Banner /etc/issue.net"
+        backup: yes
+        validate: "/usr/sbin/sshd -t -f %s"
 
-    - name: Restart SSH service
-      service:
+    - name: Test SSH configuration before applying
+      command: /usr/sbin/sshd -t
+      register: ssh_test
+      changed_when: false
+
+    - name: Display SSH test results
+      debug:
+        msg: "SSH configuration test: {{ 'PASSED' if ssh_test.rc == 0 else 'FAILED' }}"
+
+    - name: Reload SSH service (safer than restart)
+      systemd:
         name: ssh
-        state: restarted
+        state: reloaded
+      when: ssh_test.rc == 0
+
+    - name: Wait for SSH to be ready
+      wait_for:
+        port: 22
+        delay: 2
+        timeout: 15
+      when: ssh_test.rc == 0
+
+    - name: Verify SSH is still accessible
+      command: ss -tlnp | grep :22
+      register: ssh_listening
+      changed_when: false
+
+    - name: Display final status
+      debug:
+        msg: |
+          Banner configuration complete!
+
+          Banner content:
+          - Warning message with emojis 🚨🔒👁️
+          - Eye-catching security alert
+          - UTF-8 encoded emojis
+
+          SSH Status: {{ 'Listening on port 22' if ':22' in ssh_listening.stdout else 'Check SSH service' }}
+
+          The banner will appear before login prompt but will NOT:
+          - Change authentication methods
+          - Require password if you use SSH keys
+          - Affect existing SSH key authentication
+          - Break SFTP/SCP file transfers
