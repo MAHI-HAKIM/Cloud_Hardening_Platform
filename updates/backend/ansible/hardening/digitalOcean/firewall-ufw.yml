@@ -1,0 +1,300 @@
+---
+- name: Configure UFW Firewall Protection
+  hosts: all
+  become: yes
+  gather_facts: yes
+
+  vars:
+    # Configuration variables - modify these as needed
+    ssh_port: 22 # Change this if you use custom SSH port
+    allowed_ports: # Ports to allow through firewall
+      - {
+          port: "{{ ssh_port }}",
+          proto: "tcp",
+          rule: "allow",
+          comment: "SSH Access",
+        }
+      - { port: "80", proto: "tcp", rule: "allow", comment: "HTTP Web Traffic" }
+      - {
+          port: "443",
+          proto: "tcp",
+          rule: "allow",
+          comment: "HTTPS Web Traffic",
+        }
+      # Add more ports as needed:
+      # - { port: "3306", proto: "tcp", rule: "allow", comment: "MySQL Database" }
+      # - { port: "5432", proto: "tcp", rule: "allow", comment: "PostgreSQL Database" }
+
+    trusted_networks: # Networks that get full access
+      - "127.0.0.0/8" # Localhost
+      # Add your office/home network:
+      # - "192.168.1.0/24"         # Example home network
+      # - "10.0.0.0/8"             # Example office network
+
+    rate_limit_ssh: true # Enable SSH rate limiting
+    ssh_rate_limit: "6/min" # Max 6 SSH connections per minute
+
+  tasks:
+    - name: Install UFW firewall
+      apt:
+        name: ufw
+        state: present
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Reset UFW to defaults (clean slate)
+      ufw:
+        state: reset
+      notify: reload ufw
+
+    - name: Set UFW default policies
+      ufw:
+        direction: "{{ item.direction }}"
+        policy: "{{ item.policy }}"
+      loop:
+        - { direction: "incoming", policy: "deny" }
+        - { direction: "outgoing", policy: "allow" }
+        - { direction: "routed", policy: "deny" }
+      notify: reload ufw
+
+    - name: Allow trusted networks full access
+      ufw:
+        rule: allow
+        src: "{{ item }}"
+        comment: "Trusted Network"
+      loop: "{{ trusted_networks }}"
+      when: trusted_networks is defined
+      notify: reload ufw
+
+    - name: Configure SSH rate limiting
+      ufw:
+        rule: limit
+        port: "{{ ssh_port }}"
+        proto: tcp
+        comment: "SSH Rate Limited"
+      when: rate_limit_ssh
+      notify: reload ufw
+
+    - name: Allow specific ports (without rate limiting)
+      ufw:
+        rule: "{{ item.rule }}"
+        port: "{{ item.port }}"
+        proto: "{{ item.proto }}"
+        comment: "{{ item.comment }}"
+      loop: "{{ allowed_ports }}"
+      when: not (rate_limit_ssh and item.port == ssh_port|string)
+      notify: reload ufw
+
+    - name: Enable UFW logging
+      ufw:
+        logging: "on"
+      notify: reload ufw
+
+    - name: Enable UFW firewall
+      ufw:
+        state: enabled
+
+    - name: Create UFW management script
+      copy:
+        dest: /usr/local/bin/ufw-status.sh
+        content: |
+          #!/bin/bash
+          echo "=== UFW Firewall Status ==="
+          ufw status verbose
+          echo ""
+          echo "=== Recent UFW Log Entries ==="
+          tail -20 /var/log/ufw.log | grep -E "(BLOCK|ALLOW|AUDIT)"
+          echo ""
+          echo "=== Top Blocked IPs (Last 100 entries) ==="
+          tail -100 /var/log/ufw.log | grep "BLOCK" | awk '{print $13}' | sed 's/SRC=//' | sort | uniq -c | sort -nr | head -10
+          echo ""
+          echo "=== UFW Rules Summary ==="
+          ufw status numbered
+        mode: "0755"
+
+    - name: Create UFW helper commands script
+      copy:
+        dest: /usr/local/bin/ufw-helper.sh
+        content: |
+          #!/bin/bash
+
+          case "$1" in
+            "block-ip")
+              if [ -z "$2" ]; then
+                echo "Usage: $0 block-ip <IP_ADDRESS>"
+                exit 1
+              fi
+              ufw insert 1 deny from $2
+              echo "Blocked IP: $2"
+              ;;
+            "unblock-ip")
+              if [ -z "$2" ]; then
+                echo "Usage: $0 unblock-ip <IP_ADDRESS>"
+                exit 1
+              fi
+              ufw delete deny from $2
+              echo "Unblocked IP: $2"
+              ;;
+            "allow-port")
+              if [ -z "$2" ]; then
+                echo "Usage: $0 allow-port <PORT> [tcp|udp]"
+                exit 1
+              fi
+              PROTO=${3:-tcp}
+              ufw allow $2/$PROTO
+              echo "Allowed port $2/$PROTO"
+              ;;
+            "block-port")
+              if [ -z "$2" ]; then
+                echo "Usage: $0 block-port <PORT> [tcp|udp]"
+                exit 1
+              fi
+              PROTO=${3:-tcp}
+              ufw deny $2/$PROTO
+              echo "Blocked port $2/$PROTO"
+              ;;
+            "status")
+              /usr/local/bin/ufw-status.sh
+              ;;
+            *)
+              echo "UFW Helper Script"
+              echo "Usage: $0 {block-ip|unblock-ip|allow-port|block-port|status} [arguments]"
+              echo ""
+              echo "Examples:"
+              echo "  $0 block-ip 1.2.3.4"
+              echo "  $0 unblock-ip 1.2.3.4"
+              echo "  $0 allow-port 8080"
+              echo "  $0 allow-port 53 udp"
+              echo "  $0 block-port 3306"
+              echo "  $0 status"
+              ;;
+          esac
+        mode: "0755"
+
+    - name: Configure UFW log rotation
+      copy:
+        dest: /etc/logrotate.d/ufw-custom
+        content: |
+          /var/log/ufw.log {
+              daily
+              rotate 30
+              compress
+              delaycompress
+              missingok
+              notifempty
+              postrotate
+                  /bin/kill -HUP `cat /var/run/rsyslogd.pid 2> /dev/null` 2> /dev/null || true
+              endscript
+          }
+        mode: "0644"
+
+    - name: Create daily UFW report cron job
+      cron:
+        name: "Daily UFW Firewall Report"
+        minute: "0"
+        hour: "9"
+        job: "/usr/local/bin/ufw-status.sh >> /var/log/ufw-daily.log"
+        user: root
+
+    - name: Configure advanced UFW settings
+      lineinfile:
+        path: /etc/ufw/ufw.conf
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        backup: yes
+      loop:
+        - { regexp: "^LOGLEVEL=", line: "LOGLEVEL=medium" }
+        - { regexp: "^IPV6=", line: "IPV6=yes" }
+      notify: reload ufw
+
+    - name: Add custom UFW rules for common attacks
+      blockinfile:
+        path: /etc/ufw/before.rules
+        marker: "# {mark} ANSIBLE MANAGED BLOCK - Anti-DDoS rules"
+        insertafter: "# End required lines"
+        block: |
+          # Anti-DDoS rules
+          -A ufw-before-input -p tcp --dport 80 -m limit --limit 25/minute --limit-burst 100 -j ACCEPT
+          -A ufw-before-input -p tcp --dport 443 -m limit --limit 25/minute --limit-burst 100 -j ACCEPT
+
+          # Drop invalid packets
+          -A ufw-before-input -m conntrack --ctstate INVALID -j DROP
+
+          # Drop packets with excessive RST
+          -A ufw-before-input -p tcp --tcp-flags RST RST -m limit --limit 2/s --limit-burst 2 -j ACCEPT
+          -A ufw-before-input -p tcp --tcp-flags RST RST -j DROP
+        backup: yes
+      notify: reload ufw
+
+    - name: Wait for UFW to be ready
+      wait_for:
+        timeout: 5
+
+    - name: Get UFW status
+      command: ufw status verbose
+      register: ufw_status
+      changed_when: false
+
+    - name: Display UFW configuration
+      debug:
+        msg: |
+          UFW Firewall has been configured successfully!
+
+          Default Policies:
+          - Incoming: DENY (block all by default)
+          - Outgoing: ALLOW (allow all outbound)
+
+          Allowed Ports:
+          {% for port in allowed_ports %}
+          - {{ port.port }}/{{ port.proto }} ({{ port.comment }})
+          {% endfor %}
+
+          {% if rate_limit_ssh %}
+          SSH Rate Limiting: {{ ssh_rate_limit }}
+          {% endif %}
+
+          Management Commands:
+          - Check status: /usr/local/bin/ufw-status.sh
+          - Helper commands: /usr/local/bin/ufw-helper.sh
+          - Block IP: /usr/local/bin/ufw-helper.sh block-ip 1.2.3.4
+          - Allow port: /usr/local/bin/ufw-helper.sh allow-port 8080
+
+          Log Files:
+          - /var/log/ufw.log (firewall events)
+          - /var/log/ufw-daily.log (daily reports)
+
+          Current Status:
+          {{ ufw_status.stdout }}
+
+    - name: Create firewall backup script
+      copy:
+        dest: /usr/local/bin/ufw-backup.sh
+        content: |
+          #!/bin/bash
+          BACKUP_DIR="/root/ufw-backups"
+          DATE=$(date +%Y%m%d_%H%M%S)
+
+          mkdir -p $BACKUP_DIR
+
+          echo "Creating UFW backup: $BACKUP_DIR/ufw-rules-$DATE.txt"
+          ufw status numbered > $BACKUP_DIR/ufw-rules-$DATE.txt
+
+          # Keep only last 10 backups
+          ls -t $BACKUP_DIR/ufw-rules-*.txt | tail -n +11 | xargs rm -f
+
+          echo "Backup completed: $BACKUP_DIR/ufw-rules-$DATE.txt"
+        mode: "0755"
+
+    - name: Create weekly UFW backup cron job
+      cron:
+        name: "Weekly UFW Rules Backup"
+        minute: "0"
+        hour: "2"
+        weekday: "0"
+        job: "/usr/local/bin/ufw-backup.sh"
+        user: root
+
+  handlers:
+    - name: reload ufw
+      ufw:
+        state: reloaded
