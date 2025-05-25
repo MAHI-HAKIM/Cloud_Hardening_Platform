@@ -1,0 +1,37 @@
+---
+- name: Security Audit - Check fail2ban Installation
+  hosts: all
+  gather_facts: yes
+  become: yes
+
+  tasks:
+    - name: Check if fail2ban is installed
+      package_facts:
+        manager: auto
+
+    - name: Report fail2ban installation status
+      debug:
+        msg: >
+          Security Check - fail2ban Installation: {{ '✅ COMPLIANT' if 'fail2ban' in ansible_facts.packages else '❌ NOT COMPLIANT' }}
+
+    - name: Check if fail2ban service is running
+      systemd:
+        name: fail2ban
+      register: fail2ban_status
+      failed_when: false
+
+    - name: Report fail2ban service status
+      debug:
+        msg: >
+          Security Check - fail2ban Service: {{ '✅ COMPLIANT' if fail2ban_status.status is defined and fail2ban_status.status.ActiveState == 'active' else '❌ NOT COMPLIANT' }}
+
+    - name: Generate final compliance report
+      debug:
+        msg: |
+          ===========================================
+          FAIL2BAN AUDIT SUMMARY
+          ===========================================
+          Package Installed: {{ '✅ YES' if 'fail2ban' in ansible_facts.packages else '❌ NO' }}
+          Service Running: {{ '✅ YES' if fail2ban_status.status is defined and fail2ban_status.status.ActiveState == 'active' else '❌ NO' }}
+          Overall Status: {{ '✅ COMPLIANT' if ('fail2ban' in ansible_facts.packages and fail2ban_status.status is defined and fail2ban_status.status.ActiveState == 'active') else '❌ NOT COMPLIANT' }}
+          ===========================================

@@ -9,6 +9,7 @@ const os = require("os");
 const crypto = require("crypto");
 const { exec, execSync } = require("child_process");
 const admin = require("./firebaseAdmin");
+const { doc, getDoc } = require("firebase/firestore");
 
 dotenv.config();
 
@@ -238,7 +239,7 @@ app.post("/api/ssh/run-playbook", async (req, res) => {
       sshCommand = `ssh -i "${tempKeyPath}" -o StrictHostKeyChecking=no -p ${port} ${username}@${host} "echo Connected"`;
     }
 
-    console.log("🧪 Testing SSH connection:", sshCommand);
+    console.log("🧪 Testing SSH connection...");
     const sshOutput = execSync(sshCommand, { encoding: "utf-8" }).trim();
 
     if (!sshOutput.includes("Connected")) {
@@ -250,39 +251,24 @@ app.post("/api/ssh/run-playbook", async (req, res) => {
     }
 
     if (password) {
-      ansibleCommand = `ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook "${playbookPath}" -i "${host}," -u "${username}" --extra-vars "ansible_ssh_pass=${password}" -c ssh -v`;
+      ansibleCommand = `ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook "${playbookPath}" -i "${host}," -u "${username}" --extra-vars "ansible_ssh_pass=${password}" -c ssh`;
     } else {
-      ansibleCommand = `ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook "${playbookPath}" -i "${host}," -u "${username}" --private-key "${tempKeyPath}" -v`;
+      ansibleCommand = `ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook "${playbookPath}" -i "${host}," -u "${username}" --private-key "${tempKeyPath}"`;
     }
 
-    console.log("▶️ Running playbook:", ansibleCommand);
+    console.log("▶️ Running playbook...");
 
     exec(ansibleCommand, (error, stdout, stderr) => {
       if (tempKeyPath) fs.unlinkSync(tempKeyPath);
 
-      // Enhanced error handling and output parsing
-      const result = {
-        success: !error,
-        output: stdout || stderr,
-        error: error ? stderr || error.message : null,
-        stats: {},
-      };
-
-      // Parse Ansible stats
-      const statsMatch = stdout.match(/(\w+):\s*(\d+)/g);
-      if (statsMatch) {
-        statsMatch.forEach((stat) => {
-          const [key, value] = stat.split(": ");
-          result.stats[key] = parseInt(value, 10);
-        });
-      }
-
       if (error) {
         console.error("❌ Playbook failed:", stderr || error.message);
-        return res.status(500).json(result);
+        return res
+          .status(500)
+          .json({ success: false, error: stderr || error.message });
       }
 
-      res.json(result);
+      res.json({ success: true, output: stdout });
     });
   } catch (err) {
     console.error("❌ General error:", err.message);
@@ -405,6 +391,76 @@ app.post("/api/run-audit", async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * 8. CONNECT TO REGISTERED DEVICE WITH SSH PUBLIC KEY
+ */
+app.post("/api/ssh/connect-registered-device", async (req, res) => {
+  const { deviceId, userEmail } = req.body;
+
+  try {
+    // Fetch device details from Firestore
+    const deviceRef = doc(db, "devices", deviceId);
+    const deviceSnap = await getDoc(deviceRef);
+
+    if (!deviceSnap.exists()) {
+      return res.status(404).json({
+        success: false,
+        error: "Device not found",
+      });
+    }
+
+    const deviceData = deviceSnap.data();
+
+    // Validate device ownership
+    if (deviceData.email !== userEmail) {
+      return res.status(403).json({
+        success: false,
+        error: "Unauthorized access to device",
+      });
+    }
+
+    // Check if SSH public key exists
+    if (!deviceData.sshPublicKey) {
+      return res.status(400).json({
+        success: false,
+        error: "No SSH public key registered for this device",
+      });
+    }
+
+    // Prepare connection parameters
+    const connectionParams = {
+      host: deviceData.ip,
+      port: deviceData.port || 22,
+      username: deviceData.username,
+      sshKey: deviceData.sshPublicKey,
+    };
+
+    // Use existing SSH stream connection logic
+    const url = new URL("http://localhost:5000/api/ssh/stream-connect");
+    url.searchParams.set("host", connectionParams.host);
+    url.searchParams.set("port", connectionParams.port);
+    url.searchParams.set("username", connectionParams.username);
+    url.searchParams.set("authMethod", "key");
+    url.searchParams.set("passwordOrKey", connectionParams.sshKey);
+
+    res.json({
+      success: true,
+      connectionUrl: url.toString(),
+      deviceDetails: {
+        ip: deviceData.ip,
+        port: deviceData.port,
+        username: deviceData.username,
+      },
+    });
+  } catch (error) {
+    console.error("Error connecting to registered device:", error);
+    res.status(500).json({
+      success: false,
+      error: "Internal server error",
+    });
   }
 });
 

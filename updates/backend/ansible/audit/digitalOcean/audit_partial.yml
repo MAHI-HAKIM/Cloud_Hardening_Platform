@@ -159,19 +159,6 @@
       register: ssh_firewall_rule
       ignore_errors: yes
 
-    # 11. SSH Banner Check (New)
-    - name: "AUDIT 11: Check SSH Banner Configuration"
-      shell: grep '^Banner /etc/issue.net' /etc/ssh/sshd_config
-      register: ssh_banner_check
-      changed_when: false
-      failed_when: false
-
-    - name: "Report SSH Banner Compliance"
-      debug:
-        msg: |
-          SSH Banner: {{ 'COMPLIANT' if ssh_banner_check.rc == 0 else 'NOT COMPLIANT' }}
-      register: ssh_banner_result
-
     # Results Summary
     - name: "SECURITY AUDIT SUMMARY"
       debug:
@@ -216,8 +203,6 @@
 
           10. FIREWALL: {{ 'ENABLED' if firewall_enabled.changed else ufw_status.stdout.split('\n')[0] }}
               - SSH access: {{ 'ALLOWED' if ssh_firewall_rule.changed else 'CHECK MANUALLY' }}
-
-          11. SSH BANNER: {{ 'COMPLIANT' if ssh_banner_check.rc == 0 else 'NOT COMPLIANT' }}
 
           ================================================================
 

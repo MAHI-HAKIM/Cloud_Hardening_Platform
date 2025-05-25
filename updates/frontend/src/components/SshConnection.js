@@ -110,6 +110,68 @@ const SSHConnection = () => {
     });
   };
 
+  const handleConnectRegisteredDevice = async (device) => {
+    try {
+      setIsConnecting(true);
+      setConnectionStatus("Connecting...");
+      setLogs([]);
+
+      const response = await fetch(
+        "http://localhost:5000/api/ssh/connect-registered-device",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            deviceId: device.id,
+            userEmail: auth.currentUser.email,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!data.success) {
+        throw new Error(data.error);
+      }
+
+      // Use the connection URL from the server response
+      const eventSource = new EventSource(data.connectionUrl);
+
+      eventSource.onmessage = (event) => {
+        const line = event.data;
+        setLogs((prev) => [...prev, line]);
+        if (line.includes("SSH connection succeeded")) {
+          setConnectionStatus("Connected");
+          setHost(data.deviceDetails.ip);
+          setPort(data.deviceDetails.port);
+          setUsername(data.deviceDetails.username);
+        }
+        if (line.includes("SSH connection failed")) {
+          setConnectionStatus("Connection Failed");
+        }
+      };
+
+      eventSource.onerror = (err) => {
+        console.error("❌ SSE error:", err);
+        eventSource.close();
+        setConnectionStatus("Connection Failed");
+        setIsConnecting(false);
+      };
+
+      eventSource.addEventListener("end", () => {
+        eventSource.close();
+        setIsConnecting(false);
+      });
+    } catch (error) {
+      console.error("Error connecting to registered device:", error);
+      setConnectionStatus("Connection Failed");
+      setLogs([`Error: ${error.message}`]);
+      setIsConnecting(false);
+    }
+  };
+
   return (
     <DashboardLayout activePage="sshConnection">
       <header className="dashboard-header">
@@ -177,19 +239,22 @@ const SSHConnection = () => {
                           borderBottom: "1px solid #eee",
                           display: "flex",
                           justifyContent: "space-between",
+                          alignItems: "center",
                           backgroundColor: "#f4f4f4",
                           transition: "background-color 0.2s ease",
                         }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.backgroundColor = "#e0e0e0";
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.backgroundColor = "#f4f4f4";
-                        }}
-                        onClick={() => handleDeviceSelect(device)}
-                        onMouseDown={(e) => e.preventDefault()}
                       >
-                        <div>
+                        <div
+                          style={{ flex: 1, marginRight: "10px" }}
+                          onClick={() => handleDeviceSelect(device)}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = "#e0e0e0";
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = "#f4f4f4";
+                          }}
+                          onMouseDown={(e) => e.preventDefault()}
+                        >
                           <span
                             style={{
                               fontWeight: "bold",
@@ -211,18 +276,27 @@ const SSHConnection = () => {
                             {device.ip}
                           </span>
                         </div>
-                        {device.port && (
-                          <span
-                            style={{
-                              color: "#666",
-                              fontSize: "0.8em",
-                              backgroundColor: "#e6e6e6",
-                              padding: "2px 4px",
-                              borderRadius: "3px",
+                        {device.sshPublicKey && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleConnectRegisteredDevice(device);
                             }}
+                            style={{
+                              backgroundColor: "#4CAF50",
+                              color: "white",
+                              border: "none",
+                              padding: "5px 10px",
+                              borderRadius: "4px",
+                              cursor: "pointer",
+                              fontSize: "0.8em",
+                            }}
+                            disabled={isConnecting}
                           >
-                            Port: {device.port}
-                          </span>
+                            {isConnecting
+                              ? "Connecting..."
+                              : "Connect via SSH Key"}
+                          </button>
                         )}
                       </div>
                     ))
