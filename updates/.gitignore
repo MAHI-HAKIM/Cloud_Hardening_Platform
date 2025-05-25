@@ -1,0 +1,2 @@
+# Ignore Firebase Admin SDK credentials
+backend/firebase-adminsdk.json 
