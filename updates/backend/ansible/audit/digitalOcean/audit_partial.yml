@@ -1,0 +1,229 @@
+---
+- name: Top 10 Critical Cloud Security Audits
+  hosts: all
+  become: yes
+  tasks:
+    # 1. SSH Security Configuration
+    - name: "AUDIT 1: Harden SSH Configuration"
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        state: present
+        backup: yes
+      loop:
+        - { regexp: "^#?MaxAuthTries", line: "MaxAuthTries 3" }
+        - { regexp: "^#?ClientAliveInterval", line: "ClientAliveInterval 300" }
+        - { regexp: "^#?ClientAliveCountMax", line: "ClientAliveCountMax 2" }
+        - { regexp: "^#?Protocol", line: "Protocol 2" }
+      register: ssh_hardening
+      notify: restart_ssh
+
+    # 2. Critical File Permissions
+    - name: "AUDIT 2: Secure Critical System Files"
+      file:
+        path: "{{ item.path }}"
+        mode: "{{ item.mode }}"
+        owner: root
+        group: "{{ item.group }}"
+      loop:
+        - { path: "/etc/passwd", mode: "0644", group: "root" }
+        - { path: "/etc/shadow", mode: "0640", group: "shadow" }
+        - { path: "/etc/ssh/sshd_config", mode: "0600", group: "root" }
+      register: file_permissions
+
+    # 3. Network Security
+    - name: "AUDIT 3: Configure Network Security"
+      sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+        reload: yes
+      loop:
+        - { name: "net.ipv4.ip_forward", value: "0" }
+        - { name: "net.ipv4.tcp_syncookies", value: "1" }
+        - { name: "net.ipv4.conf.all.accept_redirects", value: "0" }
+        - { name: "net.ipv4.conf.all.send_redirects", value: "0" }
+      register: network_security
+
+    # 4. Disable Unnecessary Services
+    - name: "AUDIT 4: Disable Risky Services"
+      systemd:
+        name: "{{ item }}"
+        state: stopped
+        enabled: no
+      loop:
+        - telnet
+        - rsh
+        - rlogin
+        - tftp
+      register: disable_services
+      ignore_errors: yes
+
+    # 5. Password Policy
+    - name: "AUDIT 5: Enforce Password Policy"
+      lineinfile:
+        path: /etc/login.defs
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        state: present
+      loop:
+        - { regexp: "^PASS_MIN_DAYS", line: "PASS_MIN_DAYS 1" }
+        - { regexp: "^PASS_MAX_DAYS", line: "PASS_MAX_DAYS 90" }
+        - { regexp: "^PASS_MIN_LEN", line: "PASS_MIN_LEN 8" }
+      register: password_policy
+
+    # 6. System Updates
+    - name: "AUDIT 6: Check Security Updates (Ubuntu/Debian)"
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      when: ansible_os_family == "Debian"
+      register: system_updates
+      ignore_errors: yes
+
+    - name: "AUDIT 6: Install critical security updates"
+      apt:
+        upgrade: safe
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+      register: security_patches
+      ignore_errors: yes
+
+    # 7. Audit Logging
+    - name: "AUDIT 7: Enable System Logging"
+      systemd:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      loop:
+        - rsyslog
+        - systemd-journald
+      register: logging_services
+      ignore_errors: yes
+
+    # 8. Check for Vulnerable SUID Files
+    - name: "AUDIT 8: Find SUID/SGID Files"
+      find:
+        paths: ["/usr", "/bin", "/sbin"]
+        file_type: file
+        mode: "04000,02000"
+        use_regex: yes
+      register: suid_files
+
+    - name: "AUDIT 8: Remove unnecessary SUID bit from risky files"
+      file:
+        path: "{{ item }}"
+        mode: "a-s"
+      loop:
+        - /usr/bin/wall
+        - /usr/bin/write
+        - /usr/bin/chfn
+        - /usr/bin/chsh
+      register: suid_removal
+      ignore_errors: yes
+
+    # 9. Account Security
+    - name: "AUDIT 9: Check for Empty Password Accounts"
+      shell: awk -F':' '($2 == "" ) { print $1 }' /etc/shadow
+      register: empty_passwords
+      failed_when: empty_passwords.stdout_lines | length > 0
+
+    - name: "AUDIT 9: Lock accounts with empty passwords"
+      user:
+        name: "{{ item }}"
+        password_lock: yes
+      loop: "{{ empty_passwords.stdout_lines }}"
+      when: empty_passwords.stdout_lines | length > 0
+      ignore_errors: yes
+
+    # 10. Firewall Configuration
+    - name: "AUDIT 10: Check UFW Status"
+      command: ufw status
+      register: ufw_status
+      ignore_errors: yes
+
+    - name: "AUDIT 10: Enable UFW with basic rules"
+      ufw:
+        state: enabled
+        policy: deny
+        direction: incoming
+      register: firewall_enabled
+      ignore_errors: yes
+
+    - name: "AUDIT 10: Allow SSH through firewall"
+      ufw:
+        rule: allow
+        port: "{{ ansible_port | default('22') }}"
+        proto: tcp
+      register: ssh_firewall_rule
+      ignore_errors: yes
+
+    # 11. SSH Banner Check (New)
+    - name: "AUDIT 11: Check SSH Banner Configuration"
+      shell: grep '^Banner /etc/issue.net' /etc/ssh/sshd_config
+      register: ssh_banner_check
+      changed_when: false
+      failed_when: false
+
+    - name: "Report SSH Banner Compliance"
+      debug:
+        msg: |
+          SSH Banner: {{ 'COMPLIANT' if ssh_banner_check.rc == 0 else 'NOT COMPLIANT' }}
+      register: ssh_banner_result
+
+    # Results Summary
+    - name: "SECURITY AUDIT SUMMARY"
+      debug:
+        msg: |
+          =================== TOP 10 SECURITY AUDIT RESULTS ===================
+
+          1. SSH HARDENING: {{ 'APPLIED' if ssh_hardening.changed else 'ALREADY CONFIGURED' }}
+             - Max Auth Tries: 3
+             - Client Alive: 300s
+             - Protocol: 2 only
+
+          2. FILE PERMISSIONS: {{ 'SECURED' if file_permissions.changed else 'ALREADY SECURE' }}
+             - /etc/passwd: 644
+             - /etc/shadow: 640  
+             - SSH config: 600
+
+          3. NETWORK SECURITY: {{ 'HARDENED' if network_security.changed else 'ALREADY HARDENED' }}
+             - IP forwarding disabled
+             - TCP SYN cookies enabled
+             - ICMP redirects blocked
+
+          4. RISKY SERVICES: {{ disable_services.results | selectattr('changed') | list | length }} services disabled
+
+          5. PASSWORD POLICY: {{ 'ENFORCED' if password_policy.changed else 'ALREADY SET' }}
+             - Min age: 1 day
+             - Max age: 90 days
+             - Min length: 8 chars
+
+          6. SECURITY UPDATES: {{ 'CHECKED' if system_updates is defined else 'SKIPPED' }}
+             {% if security_patches is defined and security_patches.changed %}
+             - Updates installed
+             {% endif %}
+
+          7. SYSTEM LOGGING: {{ logging_services.results | selectattr('changed') | list | length }} logging services enabled
+
+          8. SUID FILES: {{ suid_files.matched }} found, {{ suid_removal.results | selectattr('changed') | list | length }} secured
+
+          9. ACCOUNT SECURITY: {{ empty_passwords.stdout_lines | length }} empty password accounts found
+             {% if empty_passwords.stdout_lines | length > 0 %}
+             - Accounts locked: {{ empty_passwords.stdout_lines | join(', ') }}
+             {% endif %}
+
+          10. FIREWALL: {{ 'ENABLED' if firewall_enabled.changed else ufw_status.stdout.split('\n')[0] }}
+              - SSH access: {{ 'ALLOWED' if ssh_firewall_rule.changed else 'CHECK MANUALLY' }}
+
+          11. SSH BANNER: {{ 'COMPLIANT' if ssh_banner_check.rc == 0 else 'NOT COMPLIANT' }}
+
+          ================================================================
+
+  handlers:
+    - name: restart_ssh
+      systemd:
+        name: ssh
+        state: restarted
+      listen: restart_ssh

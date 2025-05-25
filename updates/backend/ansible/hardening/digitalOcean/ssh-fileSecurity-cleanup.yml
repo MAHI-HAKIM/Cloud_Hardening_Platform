@@ -1,0 +1,187 @@
+---
+- name: "UNDO HARDENING: Rollback Security Configurations"
+  hosts: all
+  become: yes
+  tasks:
+    - name: "WARNING: This will undo security hardening"
+      debug:
+        msg: |
+          =================== WARNING ===================
+          This playbook will UNDO all security hardening!
+          Only run this if you need to rollback changes.
+          ==============================================
+
+    - name: "Pause for confirmation (skip with --extra-vars skip_pause=yes)"
+      pause:
+        prompt: "Are you sure you want to undo hardening? Press ENTER to continue or Ctrl+C to abort"
+      when: skip_pause is not defined
+
+    # UNDO SSH Hardening
+    - name: "Restore SSH default configurations"
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        state: present
+        backup: yes
+      loop:
+        - { regexp: "^MaxAuthTries", line: "#MaxAuthTries 6" }
+        - { regexp: "^ClientAliveInterval", line: "#ClientAliveInterval 0" }
+        - { regexp: "^ClientAliveCountMax", line: "#ClientAliveCountMax 3" }
+        - { regexp: "^Protocol", line: "#Protocol 2" }
+        - { regexp: "^LoginGraceTime", line: "#LoginGraceTime 120" }
+        - { regexp: "^X11Forwarding", line: "X11Forwarding yes" }
+        - { regexp: "^UseDNS", line: "#UseDNS yes" }
+        - { regexp: "^Banner", line: "#Banner none" }
+      register: ssh_config_restored
+
+    - name: "Remove login banner"
+      file:
+        path: /etc/issue.net
+        state: absent
+      register: banner_removed
+
+    - name: "Restart SSH service after config restore"
+      systemd:
+        name: ssh
+        state: restarted
+      when: ssh_config_restored.changed
+
+    # UNDO File Permissions (restore to common defaults)
+    - name: "Restore default file permissions"
+      file:
+        path: "{{ item.path }}"
+        mode: "{{ item.mode }}"
+        owner: root
+        group: "{{ item.group }}"
+      loop:
+        - { path: "/etc/passwd", mode: "0644", group: "root" }
+        - { path: "/etc/shadow", mode: "0640", group: "shadow" }
+        - { path: "/etc/group", mode: "0644", group: "root" }
+        - { path: "/etc/ssh/sshd_config", mode: "0644", group: "root" }
+      register: file_permissions_restored
+
+    # UNDO Network Security Settings
+    - name: "Remove custom network security configurations"
+      file:
+        path: /etc/sysctl.d/99-security.conf
+        state: absent
+      register: sysctl_config_removed
+
+    - name: "Restore network defaults via sysctl"
+      sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+        reload: yes
+      loop:
+        - { name: "net.ipv4.ip_forward", value: "0" }
+        - { name: "net.ipv4.tcp_syncookies", value: "1" }
+        - { name: "net.ipv4.conf.all.accept_redirects", value: "1" }
+        - { name: "net.ipv4.conf.default.accept_redirects", value: "1" }
+        - { name: "net.ipv4.conf.all.send_redirects", value: "1" }
+        - { name: "net.ipv4.conf.default.send_redirects", value: "1" }
+        - { name: "net.ipv4.conf.all.accept_source_route", value: "0" }
+        - { name: "net.ipv4.conf.default.accept_source_route", value: "0" }
+        - { name: "net.ipv4.icmp_echo_ignore_broadcasts", value: "0" }
+        - { name: "net.ipv4.icmp_ignore_bogus_error_responses", value: "0" }
+      register: network_defaults_restored
+
+    # UNDO Password Policy
+    - name: "Restore default password policy"
+      lineinfile:
+        path: /etc/login.defs
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        state: present
+        backup: yes
+      loop:
+        - { regexp: "^PASS_MIN_DAYS", line: "PASS_MIN_DAYS 0" }
+        - { regexp: "^PASS_MAX_DAYS", line: "PASS_MAX_DAYS 99999" }
+        - { regexp: "^PASS_MIN_LEN", line: "PASS_MIN_LEN 5" }
+        - { regexp: "^PASS_WARN_AGE", line: "PASS_WARN_AGE 7" }
+      register: password_policy_restored
+
+    # UNDO Firewall Configuration
+    - name: "Disable UFW firewall"
+      ufw:
+        state: disabled
+      register: ufw_disabled
+      ignore_errors: yes
+
+    - name: "Reset UFW rules"
+      ufw:
+        state: reset
+      register: ufw_reset
+      ignore_errors: yes
+
+    # UNDO Log Rotation Configuration
+    - name: "Remove custom log rotation config"
+      file:
+        path: /etc/logrotate.d/security-logs
+        state: absent
+      register: logrotate_removed
+
+    # Re-enable services (if they were disabled)
+    - name: "Re-enable common services that might have been disabled"
+      systemd:
+        name: "{{ item }}"
+        enabled: yes
+        state: started
+      loop:
+        - telnet
+        - rsh
+        - rlogin
+        - tftp
+      register: services_reenabled
+      ignore_errors: yes
+
+    # Restore SSH config backups if they exist
+    - name: "Check for SSH config backups"
+      find:
+        paths: /etc/ssh/
+        patterns: "sshd_config.*"
+        file_type: file
+      register: ssh_backups
+
+    - name: "List available SSH config backups"
+      debug:
+        msg: "SSH config backups found: {{ ssh_backups.files | map(attribute='path') | list }}"
+      when: ssh_backups.matched > 0
+
+    - name: "UNDO HARDENING COMPLETE - Results Summary"
+      debug:
+        msg: |
+          =================== UNDO HARDENING COMPLETE ===================
+
+          SSH CONFIGURATION:
+          - SSH config: {{ 'RESTORED TO DEFAULTS' if ssh_config_restored.changed else 'NO CHANGES NEEDED' }}
+          - Login banner: {{ 'REMOVED' if banner_removed.changed else 'NOT FOUND' }}
+          - SSH service: {{ 'RESTARTED' if ssh_config_restored.changed else 'NO RESTART NEEDED' }}
+
+          FILE PERMISSIONS:
+          - Critical files: {{ 'RESTORED TO DEFAULTS' if file_permissions_restored.changed else 'NO CHANGES NEEDED' }}
+
+          NETWORK SECURITY:
+          - Custom sysctl config: {{ 'REMOVED' if sysctl_config_removed.changed else 'NOT FOUND' }}
+          - Network settings: {{ 'RESTORED TO DEFAULTS' if network_defaults_restored.changed else 'NO CHANGES NEEDED' }}
+
+          PASSWORD POLICY:
+          - Password aging: {{ 'RESTORED TO DEFAULTS' if password_policy_restored.changed else 'NO CHANGES NEEDED' }}
+
+          FIREWALL:
+          - UFW status: {{ 'DISABLED' if ufw_disabled.changed else 'ALREADY DISABLED' }}
+          - UFW rules: {{ 'RESET' if ufw_reset.changed else 'ALREADY CLEAN' }}
+
+          SERVICES:
+          - Services re-enabled: {{ services_reenabled.results | selectattr('changed', 'equalto', true) | list | length }}
+
+          LOGGING:
+          - Custom log rotation: {{ 'REMOVED' if logrotate_removed.changed else 'NOT FOUND' }}
+
+          BACKUP INFO:
+          - SSH config backups available: {{ ssh_backups.matched }}
+          - Login.defs backup created during restore
+
+          WARNING: System is now in less secure state!
+          =============================================================

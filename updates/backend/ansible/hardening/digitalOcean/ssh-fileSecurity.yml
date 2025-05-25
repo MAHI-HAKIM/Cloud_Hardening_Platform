@@ -1,0 +1,117 @@
+---
+- name: "HARDENING 1: SSH Security & File Permissions"
+  hosts: all
+  become: yes
+  tasks:
+    # SSH Security Hardening
+    - name: "Apply SSH Security Configuration"
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        state: present
+        backup: yes
+        create: yes
+      loop:
+        - { regexp: "^#?MaxAuthTries", line: "MaxAuthTries 3" }
+        - { regexp: "^#?ClientAliveInterval", line: "ClientAliveInterval 300" }
+        - { regexp: "^#?ClientAliveCountMax", line: "ClientAliveCountMax 2" }
+        - { regexp: "^#?Protocol", line: "Protocol 2" }
+        - { regexp: "^#?LoginGraceTime", line: "LoginGraceTime 60" }
+        - { regexp: "^#?X11Forwarding", line: "X11Forwarding no" }
+        - { regexp: "^#?UseDNS", line: "UseDNS no" }
+      register: ssh_config_changes
+
+    - name: "Restart SSH service to apply changes"
+      systemd:
+        name: ssh
+        state: restarted
+      when: ssh_config_changes.changed
+
+    - name: "Secure critical system files - /etc/passwd"
+      file:
+        path: /etc/passwd
+        mode: "0644"
+        owner: root
+        group: root
+      register: passwd_secured
+
+    - name: "Secure critical system files - /etc/shadow"
+      file:
+        path: /etc/shadow
+        mode: "0640"
+        owner: root
+        group: shadow
+      register: shadow_secured
+
+    - name: "Secure SSH configuration file"
+      file:
+        path: /etc/ssh/sshd_config
+        mode: "0600"
+        owner: root
+        group: root
+      register: sshd_config_secured
+
+    - name: "Secure /etc/group file"
+      file:
+        path: /etc/group
+        mode: "0644"
+        owner: root
+        group: root
+      register: group_secured
+
+    - name: "Create login banner"
+      copy:
+        content: |
+          **************************************************************************
+          AUTHORIZED ACCESS ONLY
+
+          This system is for authorized users only. All activities may be monitored
+          and recorded. Unauthorized access is prohibited and may be subject to
+          criminal prosecution.
+          **************************************************************************
+        dest: /etc/issue.net
+        mode: "0644"
+        owner: root
+        group: root
+      register: banner_created
+
+    - name: "Configure SSH banner"
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "^#?Banner"
+        line: "Banner /etc/issue.net"
+        state: present
+      register: banner_configured
+      notify: restart_ssh
+
+    - name: "Display Hardening 1 Results"
+      debug:
+        msg: |
+          =================== HARDENING 1 COMPLETE ===================
+
+          SSH SECURITY:
+          - Max Auth Tries: {{ 'APPLIED (3)' if ssh_config_changes.changed else 'ALREADY SET' }}
+          - Client Alive Interval: {{ 'APPLIED (300s)' if ssh_config_changes.changed else 'ALREADY SET' }}
+          - Login Grace Time: {{ 'APPLIED (60s)' if ssh_config_changes.changed else 'ALREADY SET' }}
+          - X11 Forwarding: {{ 'DISABLED' if ssh_config_changes.changed else 'ALREADY DISABLED' }}
+          - DNS Lookup: {{ 'DISABLED' if ssh_config_changes.changed else 'ALREADY DISABLED' }}
+          - SSH Service: {{ 'RESTARTED' if ssh_config_changes.changed else 'NO RESTART NEEDED' }}
+
+          FILE PERMISSIONS:
+          - /etc/passwd: {{ 'SECURED (644)' if passwd_secured.changed else 'ALREADY SECURE' }}
+          - /etc/shadow: {{ 'SECURED (640)' if shadow_secured.changed else 'ALREADY SECURE' }}
+          - /etc/group: {{ 'SECURED (644)' if group_secured.changed else 'ALREADY SECURE' }}
+          - SSH config: {{ 'SECURED (600)' if sshd_config_secured.changed else 'ALREADY SECURE' }}
+
+          LOGIN SECURITY:
+          - Login banner: {{ 'CREATED' if banner_created.changed else 'ALREADY EXISTS' }}
+          - Banner configured: {{ 'APPLIED' if banner_configured.changed else 'ALREADY SET' }}
+
+          ==========================================================
+
+  handlers:
+    - name: restart_ssh
+      systemd:
+        name: ssh
+        state: restarted
