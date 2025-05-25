@@ -1,77 +1,128 @@
 ---
 - name: CIS Benchmark Audit - Cloud Linux Instance
   hosts: all
-  gather_facts: no
+  gather_facts: yes
   become: yes
 
   tasks:
-    - name: CIS 1.1.1 - Ensure SSH Banner is configured
-      shell: grep '^Banner /etc/issue.net' /etc/ssh/sshd_config || echo "NOT SET"
+    - name: CIS 1.1.1 - Check SSH Banner configuration
+      shell: grep '^Banner /etc/issue.net' /etc/ssh/sshd_config
       register: ssh_banner
       changed_when: false
+      failed_when: false
 
     - name: Report SSH Banner compliance
       debug:
         msg: >
-          CIS 1.1.1 - SSH Banner: {{ '✅ COMPLIANT' if 'Banner /etc/issue.net' in ssh_banner.stdout else '❌ NOT COMPLIANT' }}
+          CIS 1.1.1 - SSH Banner: {{ '✅ COMPLIANT' if ssh_banner.rc == 0 else '❌ NOT COMPLIANT' }}
 
-    - name: CIS 1.3.1 - Ensure /etc/motd is configured
-      shell: test -s /etc/motd && echo "SET" || echo "NOT SET"
-      register: motd
+    - name: CIS 1.3.1 - Check if /etc/motd is configured
+      stat:
+        path: /etc/motd
+      register: motd_file
+
+    - name: Check MOTD content
+      shell: test -s /etc/motd
+      register: motd_content
       changed_when: false
+      failed_when: false
+      when: motd_file.stat.exists
 
     - name: Report MOTD compliance
       debug:
         msg: >
-          CIS 1.3.1 - MOTD: {{ '✅ COMPLIANT' if 'SET' in motd.stdout else '❌ NOT COMPLIANT' }}
+          CIS 1.3.1 - MOTD: {{ '✅ COMPLIANT' if motd_file.stat.exists and motd_content.rc == 0 else '❌ NOT COMPLIANT' }}
 
-    - name: CIS 3.1.1 - Ensure IP forwarding is disabled
-      shell: grep '^net.ipv4.ip_forward = 0' /etc/sysctl.conf || echo "NOT SET"
+    - name: CIS 3.1.1 - Check IP forwarding setting
+      shell: grep '^net.ipv4.ip_forward = 0' /etc/sysctl.conf
       register: ip_forward
       changed_when: false
+      failed_when: false
+
+    - name: Check current IP forwarding runtime value
+      shell: sysctl net.ipv4.ip_forward | grep 'net.ipv4.ip_forward = 0'
+      register: ip_forward_runtime
+      changed_when: false
+      failed_when: false
 
     - name: Report IP forwarding compliance
       debug:
         msg: >
-          CIS 3.1.1 - IP Forwarding: {{ '✅ COMPLIANT' if 'net.ipv4.ip_forward = 0' in ip_forward.stdout else '❌ NOT COMPLIANT' }}
+          CIS 3.1.1 - IP Forwarding: {{ '✅ COMPLIANT' if ip_forward.rc == 0 and ip_forward_runtime.rc == 0 else '❌ NOT COMPLIANT' }}
 
-    - name: CIS 4.1.1.1 - Ensure auditd is installed
-      shell: which auditctl || echo "NOT INSTALLED"
-      register: auditd
+    - name: CIS 4.1.1.1 - Check if auditd is installed
+      shell: which auditctl
+      register: auditd_installed
       changed_when: false
+      failed_when: false
 
-    - name: Report auditd presence
+    - name: Check if auditd service is running
+      shell: systemctl is-active auditd
+      register: auditd_running
+      changed_when: false
+      failed_when: false
+
+    - name: Report auditd compliance
       debug:
         msg: >
-          CIS 4.1.1.1 - auditd Installed: {{ '✅ COMPLIANT' if 'auditctl' in auditd.stdout else '❌ NOT COMPLIANT' }}
+          CIS 4.1.1.1 - auditd: {{ '✅ COMPLIANT' if auditd_installed.rc == 0 and auditd_running.stdout == 'active' else '❌ NOT COMPLIANT' }}
 
-    - name: CIS 5.2.4 - Ensure SSH root login is disabled
-      shell: grep '^PermitRootLogin no' /etc/ssh/sshd_config || echo "NOT SET"
+    - name: CIS 5.2.4 - Check SSH root login setting
+      shell: grep '^PermitRootLogin no' /etc/ssh/sshd_config
       register: root_login
       changed_when: false
+      failed_when: false
 
     - name: Report SSH root login compliance
       debug:
         msg: >
-          CIS 5.2.4 - Root Login Disabled: {{ '✅ COMPLIANT' if 'PermitRootLogin no' in root_login.stdout else '❌ NOT COMPLIANT' }}
+          CIS 5.2.4 - Root Login Disabled: {{ '✅ COMPLIANT' if root_login.rc == 0 else '❌ NOT COMPLIANT' }}
 
-    - name: CIS 5.2.5 - Ensure SSH log level is appropriate
-      shell: grep '^LogLevel VERBOSE' /etc/ssh/sshd_config || echo "NOT SET"
+    - name: CIS 5.2.5 - Check SSH log level setting
+      shell: grep '^LogLevel VERBOSE' /etc/ssh/sshd_config
       register: ssh_log_level
       changed_when: false
+      failed_when: false
 
     - name: Report SSH LogLevel compliance
       debug:
         msg: >
-          CIS 5.2.5 - LogLevel VERBOSE: {{ '✅ COMPLIANT' if 'LogLevel VERBOSE' in ssh_log_level.stdout else '❌ NOT COMPLIANT' }}
+          CIS 5.2.5 - LogLevel VERBOSE: {{ '✅ COMPLIANT' if ssh_log_level.rc == 0 else '❌ NOT COMPLIANT' }}
 
-    - name: CIS 6.1.10 - Ensure no world writable files exist
-      shell: find / -xdev -type f -perm -0002 -print 2>/dev/null | wc -l
-      register: world_writable
+    - name: CIS 6.1.10 - Check for world writable files
+      shell: find / -xdev -type f -perm -0002 -print 2>/dev/null | head -10
+      register: world_writable_files
       changed_when: false
+      failed_when: false
+
+    - name: Count world writable files
+      shell: find / -xdev -type f -perm -0002 -print 2>/dev/null | wc -l
+      register: world_writable_count
+      changed_when: false
+      failed_when: false
 
     - name: Report world writable files
       debug:
         msg: >
-          CIS 6.1.10 - World Writable Files: {{ '✅ COMPLIANT' if world_writable.stdout|int == 0 else '❌ FOUND ' ~ world_writable.stdout ~ ' files' }}
+          CIS 6.1.10 - World Writable Files: {{ '✅ COMPLIANT' if world_writable_count.stdout|int == 0 else '❌ FOUND ' ~ world_writable_count.stdout ~ ' files' }}
 
+    - name: Show sample world writable files (if any)
+      debug:
+        msg: "Sample world writable files: {{ world_writable_files.stdout_lines[:5] }}"
+      when: world_writable_count.stdout|int > 0
+
+    # Summary Report
+    - name: Generate compliance summary
+      debug:
+        msg: |
+          ===========================================
+          CIS BENCHMARK COMPLIANCE SUMMARY
+          ===========================================
+          SSH Banner (1.1.1):     {{ '✅ PASS' if ssh_banner.rc == 0 else '❌ FAIL' }}
+          MOTD Config (1.3.1):    {{ '✅ PASS' if motd_file.stat.exists and motd_content.rc == 0 else '❌ FAIL' }}
+          IP Forward (3.1.1):     {{ '✅ PASS' if ip_forward.rc == 0 and ip_forward_runtime.rc == 0 else '❌ FAIL' }}
+          Auditd (4.1.1.1):       {{ '✅ PASS' if auditd_installed.rc == 0 and auditd_running.stdout == 'active' else '❌ FAIL' }}
+          SSH Root (5.2.4):       {{ '✅ PASS' if root_login.rc == 0 else '❌ FAIL' }}
+          SSH LogLevel (5.2.5):   {{ '✅ PASS' if ssh_log_level.rc == 0 else '❌ FAIL' }}
+          World Writable (6.1.10): {{ '✅ PASS' if world_writable_count.stdout|int == 0 else '❌ FAIL' }}
+          ===========================================
