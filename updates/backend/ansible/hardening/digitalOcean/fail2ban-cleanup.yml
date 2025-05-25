@@ -1,0 +1,191 @@
+---
+- name: Undo Fail2Ban Configuration
+  hosts: all
+  become: yes
+  gather_facts: yes
+
+  vars:
+    # Backup directory for safety
+    backup_timestamp: "{{ ansible_date_time.epoch }}"
+    backup_dir: "/root/fail2ban-removal-backup-{{ backup_timestamp }}"
+
+  tasks:
+    - name: Create backup directory
+      file:
+        path: "{{ backup_dir }}"
+        state: directory
+        mode: "0700"
+
+    - name: Check if fail2ban is installed
+      command: which fail2ban-client
+      register: fail2ban_check
+      failed_when: false
+      changed_when: false
+
+    - name: Backup current fail2ban configuration
+      shell: |
+        cp /etc/fail2ban/jail.local {{ backup_dir }}/jail.local.backup 2>/dev/null || true
+        cp /etc/fail2ban/filter.d/sshd-ddos.conf {{ backup_dir }}/sshd-ddos.conf.backup 2>/dev/null || true
+        cp /etc/fail2ban/filter.d/nmap.conf {{ backup_dir }}/nmap.conf.backup 2>/dev/null || true
+        cp /etc/fail2ban/filter.d/nginx-dos.conf {{ backup_dir }}/nginx-dos.conf.backup 2>/dev/null || true
+        fail2ban-client status > {{ backup_dir }}/fail2ban-status-backup.txt 2>/dev/null || true
+      when: fail2ban_check.rc == 0
+      ignore_errors: yes
+
+    - name: Display backup location
+      debug:
+        msg: "Fail2Ban configuration backed up to: {{ backup_dir }}"
+      when: fail2ban_check.rc == 0
+
+    - name: Stop fail2ban service
+      systemd:
+        name: fail2ban
+        state: stopped
+      when: fail2ban_check.rc == 0
+      ignore_errors: yes
+
+    - name: Disable fail2ban service
+      systemd:
+        name: fail2ban
+        enabled: no
+      when: fail2ban_check.rc == 0
+      ignore_errors: yes
+
+    - name: Remove custom fail2ban configuration files
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/fail2ban/jail.local
+        - /etc/fail2ban/filter.d/sshd-ddos.conf
+        - /etc/fail2ban/filter.d/nmap.conf
+        - /etc/fail2ban/filter.d/nginx-dos.conf
+      ignore_errors: yes
+
+    - name: Remove fail2ban monitoring scripts
+      file:
+        path: /usr/local/bin/fail2ban-status.sh
+        state: absent
+      ignore_errors: yes
+
+    - name: Remove fail2ban cron job
+      cron:
+        name: "Daily Fail2Ban Report"
+        state: absent
+        user: root
+      ignore_errors: yes
+
+    - name: Remove custom log rotation configuration
+      file:
+        path: /etc/logrotate.d/fail2ban-custom
+        state: absent
+      ignore_errors: yes
+
+    - name: Remove fail2ban log files
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /var/log/fail2ban-daily.log
+      ignore_errors: yes
+
+    - name: Remove fail2ban package
+      apt:
+        name: fail2ban
+        state: absent
+        purge: yes
+        autoremove: yes
+      when:
+        - fail2ban_check.rc == 0
+        - ansible_os_family == "Debian"
+
+    - name: Remove fail2ban configuration directory
+      file:
+        path: /etc/fail2ban
+        state: absent
+      ignore_errors: yes
+
+    - name: Remove fail2ban log file
+      file:
+        path: /var/log/fail2ban.log
+        state: absent
+      ignore_errors: yes
+
+    - name: Create restoration script
+      copy:
+        dest: "{{ backup_dir }}/restore-fail2ban.sh"
+        content: |
+          #!/bin/bash
+          echo "=== Fail2Ban Configuration Restoration Script ==="
+          echo "This script can help restore your previous Fail2Ban configuration"
+          echo ""
+          echo "Backup location: {{ backup_dir }}"
+          echo "Original configuration files:"
+          echo "- Main config: {{ backup_dir }}/jail.local.backup"
+          echo "- SSH DDOS filter: {{ backup_dir }}/sshd-ddos.conf.backup"
+          echo "- NMAP filter: {{ backup_dir }}/nmap.conf.backup"
+          echo "- Nginx DOS filter: {{ backup_dir }}/nginx-dos.conf.backup"
+          echo "- Status backup: {{ backup_dir }}/fail2ban-status-backup.txt"
+          echo ""
+          echo "To restore Fail2Ban protection:"
+          echo "1. Reinstall fail2ban: apt install fail2ban"
+          echo "2. Copy backed up configuration files to /etc/fail2ban/"
+          echo "3. Restart fail2ban service"
+          echo "4. Or re-run your original Fail2Ban playbook"
+        mode: "0755"
+      when: fail2ban_check.rc == 0
+
+    - name: Display cleanup summary
+      debug:
+        msg: |
+          ===================================================
+          Fail2Ban Cleanup Complete!
+          ===================================================
+
+          Actions taken:
+          {% if fail2ban_check.rc == 0 %}
+          ✓ Fail2Ban service stopped and disabled
+          ✓ Custom configuration files removed:
+            - /etc/fail2ban/jail.local
+            - /etc/fail2ban/filter.d/sshd-ddos.conf
+            - /etc/fail2ban/filter.d/nmap.conf
+            - /etc/fail2ban/filter.d/nginx-dos.conf
+          ✓ Monitoring script removed
+          ✓ Cron job removed
+          ✓ Custom log rotation removed
+          ✓ Fail2Ban package removed
+          ✓ Configuration backed up to: {{ backup_dir }}
+          {% else %}
+          ⚠ Fail2Ban was not installed on this system
+          {% endif %}
+
+          Files preserved in backup:
+          - Configuration files backup
+          - Status backup
+
+          Security Note:
+          - Your system now has no Fail2Ban protection
+          - SSH and other services are no longer protected from brute force attacks
+          - Consider alternative intrusion prevention if needed
+          - Backup preserved at: {{ backup_dir }}
+          ===================================================
+
+    - name: Final security warning
+      debug:
+        msg: |
+          ⚠️  IMPORTANT SECURITY WARNING ⚠️
+
+          Fail2Ban has been completely removed!
+
+          This means your server currently has no protection against:
+          - SSH brute force attacks
+          - Port scanning attempts
+          - Web server DOS attacks
+
+          If this server is exposed to the internet, consider:
+          1. Setting up alternative intrusion prevention
+          2. Monitoring authentication logs manually
+          3. Using strong SSH key authentication
+          4. Re-enabling Fail2Ban protection soon
+
+          Restoration script created at: {{ backup_dir }}/restore-fail2ban.sh

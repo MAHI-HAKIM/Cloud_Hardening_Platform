@@ -7,7 +7,6 @@ import { FaPlay } from "react-icons/fa";
 const PlaybookSelection = () => {
   const [devices, setDevices] = useState([]);
   const [selectedDevice, setSelectedDevice] = useState("");
-  const [devicePassword, setDevicePassword] = useState("");
   const [playbooks, setPlaybooks] = useState([]);
   const [selectedPlaybook, setSelectedPlaybook] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -31,6 +30,7 @@ const PlaybookSelection = () => {
             ...doc.data(),
           }));
           setDevices(devicesData);
+          console.log("devicesData", devicesData);
         } catch (error) {
           console.error("Error fetching devices:", error);
         } finally {
@@ -44,7 +44,9 @@ const PlaybookSelection = () => {
   useEffect(() => {
     const fetchPlaybooks = async () => {
       try {
-        const res = await fetch("http://localhost:5000/api/getplaybooks/hardening");
+        const res = await fetch(
+          "http://localhost:5000/api/getplaybooks/hardening"
+        );
         const data = await res.json();
         setPlaybooks(data);
       } catch {
@@ -55,20 +57,20 @@ const PlaybookSelection = () => {
   }, []);
 
   const parseAnsibleOutput = (output) => {
-    const lines = output.split('\n');
+    const lines = output.split("\n");
     const tasks = [];
     let currentTask = null;
     lines.forEach((line) => {
       const taskMatch = line.match(/TASK \[(.*?)\]/);
       if (taskMatch) {
-        currentTask = { name: taskMatch[1], status: 'pending' };
+        currentTask = { name: taskMatch[1], status: "pending" };
         tasks.push(currentTask);
       }
-      if (line.includes('ok:') && currentTask) {
-        currentTask.status = 'success';
+      if (line.includes("ok:") && currentTask) {
+        currentTask.status = "success";
       }
-      if (line.includes('failed=1') && currentTask) {
-        currentTask.status = 'failed';
+      if (line.includes("failed=1") && currentTask) {
+        currentTask.status = "failed";
       }
     });
     return tasks;
@@ -82,31 +84,33 @@ const PlaybookSelection = () => {
       alert("Please select both a device and a playbook.");
       return;
     }
-    if (!devicePassword.trim()) {
-      alert("Please enter the password for the selected device.");
-      return;
-    }
 
     setIsRunning(true);
     const payload = {
       host: device.ip,
       port: device.port || 22,
       username: device.username,
-      password: devicePassword.trim(),
+      password: device.password.trim(),
       playbookPath: selectedPlaybook.fullPath,
     };
 
+    console.log("payload", payload);
     try {
-      const response = await fetch("http://localhost:5000/api/ssh/run-playbook", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      const response = await fetch(
+        "http://localhost:5000/api/ssh/run-playbook",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        }
+      );
       const result = await response.json();
       setRunResult(result);
 
       if (result.success) {
-        alert(`✅ Successfully executed ${selectedPlaybook.name} on ${device.deviceName}`);
+        alert(
+          `✅ Successfully executed ${selectedPlaybook.name} on ${device.deviceName}`
+        );
       } else {
         alert(`❌ Failed: ${result.error || "Unknown error"}`);
       }
@@ -119,7 +123,6 @@ const PlaybookSelection = () => {
       setRunResult({ success: false, error: err.message });
     } finally {
       setIsRunning(false);
-      setDevicePassword("");
     }
   };
 
@@ -129,7 +132,7 @@ const PlaybookSelection = () => {
         <h1>Cloud Hardening Playbooks</h1>
       </header>
 
-      <div className="dashboard-content-wrapper" style={{ display: 'flex' }}>
+      <div className="dashboard-content-wrapper" style={{ display: "flex" }}>
         {!playbookSelected && (
           <div
             className="form-panel device-selector-panel"
@@ -152,24 +155,15 @@ const PlaybookSelection = () => {
                 ))}
               </select>
             </div>
-
-            <div className="form-group">
-              <label>Enter Password to Confirm Selection:</label>
-              <input
-                type="password"
-                value={devicePassword}
-                onChange={(e) => setDevicePassword(e.target.value)}
-                className="form-input"
-                placeholder="Enter device password"
-                disabled={!selectedDevice}
-              />
-            </div>
           </div>
         )}
 
         <div
           className="dashboard-panel"
-          style={{ width: playbookSelected ? "100%" : "60%", transition: "width 0.5s ease" }}
+          style={{
+            width: playbookSelected ? "100%" : "60%",
+            transition: "width 0.5s ease",
+          }}
         >
           {playbookSelected ? (
             <div>
@@ -179,24 +173,40 @@ const PlaybookSelection = () => {
               <button
                 onClick={handleRunPlaybook}
                 className="primary-button run-button"
-                disabled={!selectedDevice || !devicePassword || isRunning}
+                disabled={!selectedDevice || isRunning}
               >
                 <FaPlay className="button-icon" />
                 {isRunning ? "Running Hardening..." : "Run Hardening"}
               </button>
 
               {taskProgress.length > 0 && (
-                <div className="playbook-progress-section" style={{ marginTop: 16 }}>
+                <div
+                  className="playbook-progress-section"
+                  style={{ marginTop: 16 }}
+                >
                   <h3>Playbook Progress</h3>
-                  <ul style={{ listStyle: 'none', padding: 0 }}>
+                  <ul style={{ listStyle: "none", padding: 0 }}>
                     {taskProgress.map((task, idx) => (
-                      <li key={idx} style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-                        {task.status === 'success' ? (
-                          <span style={{ color: 'green', marginRight: 8 }}>✔️</span>
-                        ) : task.status === 'failed' ? (
-                          <span style={{ color: 'red', marginRight: 8 }}>❌</span>
+                      <li
+                        key={idx}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          marginBottom: 4,
+                        }}
+                      >
+                        {task.status === "success" ? (
+                          <span style={{ color: "green", marginRight: 8 }}>
+                            ✔️
+                          </span>
+                        ) : task.status === "failed" ? (
+                          <span style={{ color: "red", marginRight: 8 }}>
+                            ❌
+                          </span>
                         ) : (
-                          <span style={{ color: 'gray', marginRight: 8 }}>⏳</span>
+                          <span style={{ color: "gray", marginRight: 8 }}>
+                            ⏳
+                          </span>
                         )}
                         <span>{task.name}</span>
                       </li>
@@ -207,8 +217,16 @@ const PlaybookSelection = () => {
 
               {runResult && (
                 <div className="playbook-run-result" style={{ marginTop: 16 }}>
-                  <pre style={{ color: runResult.success ? 'green' : 'red', maxHeight: 200, overflow: 'auto' }}>
-                    {runResult.success ? runResult.output : runResult.error || 'Unknown error'}
+                  <pre
+                    style={{
+                      color: runResult.success ? "green" : "red",
+                      maxHeight: 200,
+                      overflow: "auto",
+                    }}
+                  >
+                    {runResult.success
+                      ? runResult.output
+                      : runResult.error || "Unknown error"}
                   </pre>
                 </div>
               )}
@@ -231,11 +249,15 @@ const PlaybookSelection = () => {
               ) : (
                 <ul className="playbook-list">
                   {playbooks.map((playbook, idx) => (
-                    <li key={playbook.fullPath || idx} className="playbook-item">
+                    <li
+                      key={playbook.fullPath || idx}
+                      className="playbook-item"
+                    >
                       <div className="playbook-info">
                         <span className="playbook-name">{playbook.name}</span>
-                        <span className="playbook-category">{playbook.category}</span>
-                        <p className="playbook-description">{playbook.fullPath}</p>
+                        <span className="playbook-category">
+                          {playbook.category}
+                        </span>
                       </div>
                       <div className="playbook-actions">
                         <button
@@ -244,6 +266,7 @@ const PlaybookSelection = () => {
                             setPlaybookSelected(true);
                           }}
                           className="action-btn select-btn"
+                          disabled={!selectedDevice}
                         >
                           Select
                         </button>
