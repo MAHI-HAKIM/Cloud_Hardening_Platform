@@ -6,19 +6,8 @@
     - name: Create custom banner text
       copy:
         content: |
-          +=======================================================================+
-          ||                     🚨 SECURITY WARNING 🚨                           ||
-          +=======================================================================+
-          ||                                                                      ||
-          ||  UNAUTHORIZED ACCESS IS STRICTLY PROHIBITED                          ||
-          ||                                                                      ||
-          ||  * This system is the property of the organization                   ||
-          ||  * All activities are continuously monitored and recorded            ||
-          ||  * Unauthorized access will result in legal prosecution              ||
-          ||                                                                      ||
-          ||  VIOLATORS WILL BE PROSECUTED TO THE FULL EXTENT OF THE LAW          ||
-          ||                                                                      ||
-          +=======================================================================+
+          🚨--------------- Unauthorized access is prohibited -------------------🚨
+          🔐--------------- 👁️👁️👁️👁️All activities are monitored👁️👁️👁️👁️👁️ -------------------🔐
         dest: /etc/issue.net
         owner: root
         group: root
@@ -30,30 +19,6 @@
         regexp: "^#?Banner"
         line: "Banner /etc/issue.net"
         create: yes
-
-    - name: Enable pre-login banner display
-      lineinfile:
-        path: /etc/ssh/sshd_config
-        regexp: "^#?PrintMotd"
-        line: "PrintMotd yes"
-        create: yes
-
-    - name: Enable login banner display
-      lineinfile:
-        path: /etc/ssh/sshd_config
-        regexp: "^#?PrintLastLog"
-        line: "PrintLastLog yes"
-        create: yes
-
-    - name: Ensure full banner visibility
-      copy:
-        content: |
-          #!/bin/sh
-          cat /etc/issue.net
-        dest: /etc/update-motd.d/00-banner
-        owner: root
-        group: root
-        mode: "0755"
 
     - name: Restart SSH service
       service:
