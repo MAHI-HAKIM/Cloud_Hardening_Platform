@@ -31,6 +31,30 @@
         line: "Banner /etc/issue.net"
         create: yes
 
+    - name: Enable pre-login banner display
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "^#?PrintMotd"
+        line: "PrintMotd yes"
+        create: yes
+
+    - name: Enable login banner display
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "^#?PrintLastLog"
+        line: "PrintLastLog yes"
+        create: yes
+
+    - name: Ensure full banner visibility
+      copy:
+        content: |
+          #!/bin/sh
+          cat /etc/issue.net
+        dest: /etc/update-motd.d/00-banner
+        owner: root
+        group: root
+        mode: "0755"
+
     - name: Restart SSH service
       service:
         name: ssh
