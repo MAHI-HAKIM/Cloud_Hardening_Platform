@@ -1,135 +1,26 @@
 ---
-- name: Set safe login banner with emojis
+- name: Set custom login banner
   hosts: all
   become: yes
-  gather_facts: yes
-  vars:
-    # Fix Python interpreter discovery issue
-    ansible_python_interpreter: auto_silent
-    backup_timestamp: "{{ ansible_date_time.epoch }}"
-
   tasks:
-    - name: Ensure Python3 is available
-      raw: |
-        if ! command -v python3 &> /dev/null; then
-          apt update && apt install -y python3
-        fi
-      changed_when: false
-      ignore_errors: yes
-
-    - name: Update package cache
-      apt:
-        update_cache: yes
-        cache_valid_time: 3600
-      when: ansible_os_family == "Debian"
-
-    - name: Install required packages
-      apt:
-        name:
-          - openssh-server
-          - python3
-        state: present
-      when: ansible_os_family == "Debian"
-
-    - name: Backup current SSH configuration
-      copy:
-        src: /etc/ssh/sshd_config
-        dest: "/root/sshd_config.backup.{{ backup_timestamp }}"
-        remote_src: yes
-
-    - name: Create banner text with emojis (UTF-8 safe)
+    - name: Create custom banner text
       copy:
         content: |
-          🚨 WARNING: Unauthorized access is prohibited! 🚨
-          🔒 All activities are monitored and logged. 🔒
-          👁️  You are being watched. 👁️
+          🚨 Unauthorized access is prohibited.
+          🔐 All activities are monitored.
         dest: /etc/issue.net
         owner: root
         group: root
-        mode: "0644"
-        backup: yes
+        mode: '0644'
 
-    - name: Ensure SSH config directory exists
-      file:
-        path: /etc/ssh
-        state: directory
-        mode: "0755"
-
-    - name: Check if sshd_config exists
-      stat:
-        path: /etc/ssh/sshd_config
-      register: sshd_config_exists
-
-    - name: Enable banner in SSH config (with validation)
+    - name: Enable banner in SSH config
       lineinfile:
         path: /etc/ssh/sshd_config
-        regexp: "^#?Banner"
-        line: "Banner /etc/issue.net"
-        backup: yes
+        regexp: '^#?Banner'
+        line: 'Banner /etc/issue.net'
         create: yes
-        validate: "/usr/sbin/sshd -t -f %s"
-      when: sshd_config_exists.stat.exists
 
-    - name: Test SSH configuration before applying
-      command: /usr/sbin/sshd -t
-      register: ssh_test
-      changed_when: false
-      failed_when: false
-
-    - name: Display SSH test results
-      debug:
-        msg: "SSH configuration test: {{ 'PASSED' if ssh_test.rc == 0 else 'FAILED - ' + (ssh_test.stderr | default('Unknown error')) }}"
-
-    - name: Reload SSH service (safer than restart)
-      systemd:
-        name: "{{ item }}"
-        state: reloaded
-      loop:
-        - ssh
-        - sshd
-      when: ssh_test.rc == 0
-      ignore_errors: yes
-
-    - name: Wait for SSH to be ready
-      wait_for:
-        port: 22
-        delay: 2
-        timeout: 15
-      when: ssh_test.rc == 0
-
-    - name: Verify SSH is still accessible
-      command: ss -tlnp | grep :22
-      register: ssh_listening
-      changed_when: false
-      failed_when: false
-
-    - name: Test banner display
-      shell: echo "" | nc -w 2 localhost 22 | head -5
-      register: banner_test
-      changed_when: false
-      failed_when: false
-
-    - name: Display final status
-      debug:
-        msg: |
-          ===================================================
-          Banner Configuration Complete! 🎉
-          ===================================================
-
-          Banner content:
-          🚨 WARNING: Unauthorized access is prohibited! 🚨
-          🔒 All activities are monitored and logged. 🔒
-          👁️  You are being watched. 👁️
-
-          Technical details:
-          - SSH Status: {{ 'Listening on port 22' if ssh_listening.rc == 0 and ':22' in ssh_listening.stdout else 'Check SSH service' }}
-          - Config Test: {{ 'PASSED' if ssh_test.rc == 0 else 'FAILED' }}
-          - Python Interpreter: Fixed discovery issues
-          - UTF-8 Encoding: Enabled for emoji support
-
-          The banner will appear before login but will NOT affect:
-          ✅ SSH key authentication
-          ✅ Password authentication settings  
-          ✅ User accounts and permissions
-          ✅ Existing connections
-          ===================================================
+    - name: Restart SSH service
+      service:
+        name: ssh
+        state: restarted
