@@ -69,6 +69,12 @@ const SSHConnection = () => {
     setPort(device.port || 22);
     setUsername(device.username || "");
     setShowDropdown(false);
+
+    // If device has an SSH public key, set authentication method to key
+    if (device.sshPublicKey) {
+      setAuthMethod("key");
+      setPasswordOrKey(device.sshPublicKey);
+    }
   };
 
   const handleConnect = (e) => {
@@ -108,6 +114,51 @@ const SSHConnection = () => {
       eventSource.close();
       setIsConnecting(false);
     });
+  };
+
+  const handleConnectRegisteredDevice = async (device) => {
+    try {
+      setIsConnecting(true);
+      setConnectionStatus("Connecting...");
+      setLogs([]);
+
+      const response = await fetch(
+        "http://localhost:5000/api/ssh/connect-registered-device",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ deviceId: device.id }),
+        }
+      );
+
+      const result = await response.json();
+
+      if (result.success) {
+        setConnectionStatus("Connected");
+        setLogs([
+          "✅ Successfully connected to registered device",
+          `Host: ${result.details.host}`,
+          `Port: ${result.details.port}`,
+          `Username: ${result.details.username}`,
+        ]);
+      } else {
+        setConnectionStatus("Connection Failed");
+        setLogs([
+          "❌ Failed to connect to registered device",
+          `Error: ${result.error}`,
+          ...Object.entries(result.details || {}).map(
+            ([key, value]) => `${key}: ${value}`
+          ),
+        ]);
+      }
+    } catch (error) {
+      setConnectionStatus("Connection Failed");
+      setLogs(["❌ Error connecting to registered device", error.message]);
+    } finally {
+      setIsConnecting(false);
+    }
   };
 
   return (
@@ -177,6 +228,7 @@ const SSHConnection = () => {
                           borderBottom: "1px solid #eee",
                           display: "flex",
                           justifyContent: "space-between",
+                          alignItems: "center",
                           backgroundColor: "#f4f4f4",
                           transition: "background-color 0.2s ease",
                         }}
@@ -186,7 +238,6 @@ const SSHConnection = () => {
                         onMouseLeave={(e) => {
                           e.currentTarget.style.backgroundColor = "#f4f4f4";
                         }}
-                        onClick={() => handleDeviceSelect(device)}
                         onMouseDown={(e) => e.preventDefault()}
                       >
                         <div>
@@ -211,19 +262,76 @@ const SSHConnection = () => {
                             {device.ip}
                           </span>
                         </div>
-                        {device.port && (
-                          <span
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "10px",
+                          }}
+                        >
+                          {device.port && (
+                            <span
+                              style={{
+                                color: "#666",
+                                fontSize: "0.8em",
+                                backgroundColor: "#e6e6e6",
+                                padding: "2px 4px",
+                                borderRadius: "3px",
+                              }}
+                            >
+                              Port: {device.port}
+                            </span>
+                          )}
+                          {device.sshPublicKey && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleConnectRegisteredDevice(device);
+                              }}
+                              style={{
+                                backgroundColor: "#4CAF50",
+                                color: "white",
+                                border: "none",
+                                padding: "4px 8px",
+                                borderRadius: "4px",
+                                fontSize: "0.8em",
+                                cursor: "pointer",
+                                transition: "background-color 0.2s ease",
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.backgroundColor =
+                                  "#45a049";
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.backgroundColor =
+                                  "#4CAF50";
+                              }}
+                            >
+                              Direct Connect
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleDeviceSelect(device)}
                             style={{
-                              color: "#666",
+                              backgroundColor: "#2196F3",
+                              color: "white",
+                              border: "none",
+                              padding: "4px 8px",
+                              borderRadius: "4px",
                               fontSize: "0.8em",
-                              backgroundColor: "#e6e6e6",
-                              padding: "2px 4px",
-                              borderRadius: "3px",
+                              cursor: "pointer",
+                              transition: "background-color 0.2s ease",
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.backgroundColor = "#1E88E5";
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.backgroundColor = "#2196F3";
                             }}
                           >
-                            Port: {device.port}
-                          </span>
-                        )}
+                            Select
+                          </button>
+                        </div>
                       </div>
                     ))
                   ) : (

@@ -9,6 +9,8 @@ const os = require("os");
 const crypto = require("crypto");
 const { exec, execSync } = require("child_process");
 const admin = require("./firebaseAdmin");
+const { doc, getDoc } = require("firebase/firestore");
+const { db } = require("./firebaseAdmin");
 
 dotenv.config();
 
@@ -390,6 +392,76 @@ app.post("/api/run-audit", async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * 8. CONNECT TO REGISTERED DEVICE WITH PUBLIC KEY
+ */
+app.post("/api/ssh/connect-registered-device", async (req, res) => {
+  const { deviceId } = req.body;
+
+  try {
+    // Fetch device details from Firestore
+    const deviceRef = doc(db, "devices", deviceId);
+    const deviceSnap = await getDoc(deviceRef);
+
+    if (!deviceSnap.exists()) {
+      return res.status(404).json({
+        success: false,
+        error: "Device not found",
+      });
+    }
+
+    const deviceData = deviceSnap.data();
+    const { ip: host, port = 22, username, sshPublicKey } = deviceData;
+
+    if (!sshPublicKey) {
+      return res.status(400).json({
+        success: false,
+        error: "No SSH public key registered for this device",
+      });
+    }
+
+    // Temporary file for SSH key
+    const tempKeyPath = path.join(__dirname, `id_rsa_${Date.now()}.pub`);
+    fs.writeFileSync(tempKeyPath, sshPublicKey, { mode: 0o644 });
+
+    // SSH connection test command
+    const sshCommand = `ssh -i "${tempKeyPath}" -o StrictHostKeyChecking=no -p ${port} ${username}@${host} "echo Connected"`;
+
+    exec(sshCommand, (error, stdout, stderr) => {
+      // Clean up temporary key file
+      fs.unlinkSync(tempKeyPath);
+
+      if (error) {
+        return res.status(500).json({
+          success: false,
+          error: stderr || error.message,
+          details: {
+            host,
+            port,
+            username,
+            errorCode: error.code,
+          },
+        });
+      }
+
+      res.json({
+        success: true,
+        message: "Successfully connected to the device",
+        details: {
+          host,
+          port,
+          username,
+        },
+      });
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: err.message,
+    });
   }
 });
 
