@@ -1,0 +1,48 @@
+---
+- name: Remove custom login banner
+  hosts: all
+  become: yes
+  tasks:
+    - name: Remove custom banner file
+      file:
+        path: /etc/issue.net
+        state: absent
+
+    - name: Remove banner configuration from SSH config
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "^Banner.*"
+        state: absent
+
+    - name: Comment out banner line (alternative approach)
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "^Banner"
+        line: "#Banner none"
+        backrefs: yes
+
+    - name: Restart SSH service to apply changes
+      service:
+        name: ssh
+        state: restarted
+
+    - name: Verify banner removal
+      command: grep -i banner /etc/ssh/sshd_config
+      register: banner_check
+      ignore_errors: yes
+
+    - name: Display banner cleanup status
+      debug:
+        msg: |
+          Banner cleanup completed.
+          SSH config banner lines: {{ banner_check.stdout_lines | default(['No banner lines found']) }}
+          Banner file removed: /etc/issue.net
+
+    - name: Check if banner file exists
+      stat:
+        path: /etc/issue.net
+      register: banner_file_stat
+
+    - name: Confirm banner file removal
+      debug:
+        msg: "Banner file /etc/issue.net exists: {{ banner_file_stat.stat.exists }}"

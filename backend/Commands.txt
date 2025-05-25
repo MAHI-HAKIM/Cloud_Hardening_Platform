@@ -1,0 +1,8 @@
+/********* FAIL2BAN MANUAL Checks *****************/
+
+systemctl list-unit-files | grep fail2ban 
+dpkg -l | grep fail2ban
+
+/--------------------------------------------/
+
+

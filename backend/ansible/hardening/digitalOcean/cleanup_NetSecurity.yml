@@ -1,0 +1,138 @@
+---
+- name: "CLEANUP: Network Security & Service Management"
+  hosts: all
+  become: yes
+  tasks:
+    # Restore Network Security Settings to defaults
+    - name: "Restore Network Security Settings to Defaults"
+      sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+        reload: yes
+        sysctl_file: /etc/sysctl.d/99-security.conf
+      loop:
+        - { name: "net.ipv4.ip_forward", value: "0" } # Keep disabled (default)
+        - { name: "net.ipv4.tcp_syncookies", value: "1" } # Keep enabled (good default)
+        - { name: "net.ipv4.conf.all.accept_redirects", value: "1" } # Default
+        - { name: "net.ipv4.conf.default.accept_redirects", value: "1" } # Default
+        - { name: "net.ipv4.conf.all.send_redirects", value: "1" } # Default
+        - { name: "net.ipv4.conf.default.send_redirects", value: "1" } # Default
+        - { name: "net.ipv4.conf.all.accept_source_route", value: "1" } # Default
+        - { name: "net.ipv4.conf.default.accept_source_route", value: "1" } # Default
+        - { name: "net.ipv4.icmp_echo_ignore_broadcasts", value: "0" } # Default
+        - { name: "net.ipv4.icmp_ignore_bogus_error_responses", value: "0" } # Default
+      register: network_restore
+
+    - name: "Remove custom sysctl security configuration file"
+      file:
+        path: /etc/sysctl.d/99-security.conf
+        state: absent
+      register: sysctl_file_removed
+
+    # Re-enable previously disabled services (if needed)
+    - name: "Check if services were disabled and re-enable them"
+      systemd:
+        name: "{{ item }}"
+        enabled: yes
+        state: started
+      loop:
+        - telnet
+        - rsh
+        - rlogin
+        - tftp
+        - finger
+        - talk
+      register: services_restored
+      ignore_errors: yes
+
+    # Restore Password Policy to Ubuntu defaults
+    - name: "Restore password aging policy to defaults"
+      lineinfile:
+        path: /etc/login.defs
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        state: present
+        backup: yes
+      loop:
+        - { regexp: "^PASS_MIN_DAYS", line: "PASS_MIN_DAYS 0" }
+        - { regexp: "^PASS_MAX_DAYS", line: "PASS_MAX_DAYS 99999" }
+        - { regexp: "^PASS_MIN_LEN", line: "PASS_MIN_LEN 5" }
+        - { regexp: "^PASS_WARN_AGE", line: "PASS_WARN_AGE 7" }
+      register: password_policy_restored
+
+    # Remove custom log rotation configuration
+    - name: "Remove custom security logs rotation"
+      file:
+        path: /etc/logrotate.d/security-logs
+        state: absent
+      register: logrotate_removed
+
+    # Disable UFW firewall (restore to original state)
+    - name: "Disable UFW firewall"
+      ufw:
+        state: disabled
+      register: ufw_disabled
+      ignore_errors: yes
+
+    - name: "Reset UFW rules to default"
+      ufw:
+        state: reset
+      register: ufw_reset
+      ignore_errors: yes
+
+    # Optional: Remove UFW package (uncomment if you want complete removal)
+    # - name: "Remove UFW package"
+    #   package:
+    #     name: ufw
+    #     state: absent
+    #   register: ufw_removed
+
+    # Verification checks
+    - name: "Check current sysctl network settings"
+      command: sysctl net.ipv4.conf.all.accept_redirects net.ipv4.conf.all.send_redirects
+      register: sysctl_check
+      ignore_errors: yes
+
+    - name: "Check UFW status"
+      command: ufw status
+      register: ufw_status_check
+      ignore_errors: yes
+
+    - name: "Check password policy settings"
+      command: grep -E "PASS_(MIN|MAX)_DAYS|PASS_(MIN_LEN|WARN_AGE)" /etc/login.defs
+      register: password_check
+      ignore_errors: yes
+
+    - name: "Display Cleanup Results"
+      debug:
+        msg: |
+          =================== NETWORK SECURITY CLEANUP COMPLETE ===================
+
+          NETWORK SECURITY RESTORED:
+          - Custom sysctl file: {{ 'REMOVED' if sysctl_file_removed.changed else 'NOT FOUND' }}
+          - Network settings: {{ 'RESTORED TO DEFAULTS' if network_restore.changed else 'UNCHANGED' }}
+          - Current redirects setting: {{ sysctl_check.stdout_lines[0] if sysctl_check.stdout_lines else 'Could not check' }}
+
+          SERVICES:
+          - Services checked for restore: {{ services_restored.results | length }}
+          - Note: Only services that existed will be restored
+
+          PASSWORD POLICY RESTORED:
+          - Password aging: {{ 'RESTORED TO DEFAULTS' if password_policy_restored.changed else 'UNCHANGED' }}
+          - Current settings preview: {{ password_check.stdout_lines[:2] if password_check.stdout_lines else 'Could not check' }}
+
+          LOGGING:
+          - Custom log rotation: {{ 'REMOVED' if logrotate_removed.changed else 'NOT FOUND' }}
+          - System logging services remain active
+
+          FIREWALL:
+          - UFW status: {{ 'DISABLED' if ufw_disabled.changed else 'ALREADY DISABLED' }}
+          - UFW rules: {{ 'RESET' if ufw_reset.changed else 'ALREADY RESET' }}
+          - Current UFW status: {{ ufw_status_check.stdout.split('\n')[0] if ufw_status_check.stdout else 'Could not check' }}
+
+          =====================================================================
+
+    - name: "Apply sysctl changes immediately"
+      command: sysctl -p
+      ignore_errors: yes

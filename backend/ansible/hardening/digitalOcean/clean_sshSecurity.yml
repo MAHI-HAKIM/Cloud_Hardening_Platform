@@ -1,0 +1,148 @@
+---
+- name: "CLEANUP: SSH Security & File Permissions"
+  hosts: all
+  become: yes
+  tasks:
+    # Restore SSH Configuration to Ubuntu defaults
+    - name: "Restore SSH Security Configuration to Defaults"
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        state: present
+        backup: yes
+      loop:
+        - { regexp: "^MaxAuthTries", line: "#MaxAuthTries 6" }
+        - { regexp: "^ClientAliveInterval", line: "#ClientAliveInterval 0" }
+        - { regexp: "^ClientAliveCountMax", line: "#ClientAliveCountMax 3" }
+        - { regexp: "^Protocol", line: "#Protocol 2" }
+        - { regexp: "^LoginGraceTime", line: "#LoginGraceTime 120" }
+        - { regexp: "^X11Forwarding", line: "#X11Forwarding yes" }
+        - { regexp: "^UseDNS", line: "#UseDNS yes" }
+      register: ssh_config_restored
+
+    # Remove SSH banner configuration
+    - name: "Remove SSH banner configuration"
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "^Banner"
+        state: absent
+      register: banner_config_removed
+
+    # Remove banner file
+    - name: "Remove login banner file"
+      file:
+        path: /etc/issue.net
+        state: absent
+      register: banner_file_removed
+
+    # Restore file permissions to standard Ubuntu defaults
+    - name: "Restore /etc/passwd permissions (if changed)"
+      file:
+        path: /etc/passwd
+        mode: "0644"
+        owner: root
+        group: root
+      register: passwd_restored
+
+    - name: "Restore /etc/shadow permissions (keep secure)"
+      file:
+        path: /etc/shadow
+        mode: "0640"
+        owner: root
+        group: shadow
+      register: shadow_restored
+
+    - name: "Restore SSH config permissions to default"
+      file:
+        path: /etc/ssh/sshd_config
+        mode: "0644"
+        owner: root
+        group: root
+      register: sshd_config_restored
+
+    - name: "Restore /etc/group permissions"
+      file:
+        path: /etc/group
+        mode: "0644"
+        owner: root
+        group: root
+      register: group_restored
+
+    # Restart SSH service to apply changes
+    - name: "Restart SSH service to apply restored settings"
+      systemd:
+        name: ssh
+        state: restarted
+      when: ssh_config_restored.changed or banner_config_removed.changed
+
+    # Verification checks
+    - name: "Check current SSH configuration"
+      command: grep -E "MaxAuthTries|ClientAliveInterval|X11Forwarding|Banner" /etc/ssh/sshd_config
+      register: ssh_config_check
+      ignore_errors: yes
+
+    - name: "Check file permissions"
+      shell: |
+        echo "/etc/passwd: $(ls -l /etc/passwd | awk '{print $1, $3, $4}')"
+        echo "/etc/shadow: $(ls -l /etc/shadow | awk '{print $1, $3, $4}')"
+        echo "/etc/ssh/sshd_config: $(ls -l /etc/ssh/sshd_config | awk '{print $1, $3, $4}')"
+      register: file_permissions_check
+
+    - name: "Check if banner file exists"
+      stat:
+        path: /etc/issue.net
+      register: banner_file_check
+
+    - name: "Check SSH service status"
+      command: systemctl status ssh --no-pager -l
+      register: ssh_service_check
+      ignore_errors: yes
+
+    - name: "Display Cleanup Results"
+      debug:
+        msg: |
+          =================== SSH & FILE SECURITY CLEANUP COMPLETE ===================
+
+          SSH CONFIGURATION RESTORED:
+          - SSH config changes: {{ 'RESTORED TO DEFAULTS' if ssh_config_restored.changed else 'NO CHANGES NEEDED' }}
+          - Banner configuration: {{ 'REMOVED' if banner_config_removed.changed else 'NOT FOUND' }}
+          - SSH service: {{ 'RESTARTED' if (ssh_config_restored.changed or banner_config_removed.changed) else 'NO RESTART NEEDED' }}
+
+          CURRENT SSH SETTINGS:
+          {% for line in ssh_config_check.stdout_lines %}
+          - {{ line }}
+          {% endfor %}
+
+          FILE PERMISSIONS:
+          {{ file_permissions_check.stdout }}
+
+          BANNER STATUS:
+          - Banner file exists: {{ banner_file_check.stat.exists }}
+          - Banner file removed: {{ 'YES' if banner_file_removed.changed else 'NOT FOUND' }}
+
+          SSH SERVICE STATUS:
+          - Service active: {{ 'YES' if 'active (running)' in ssh_service_check.stdout else 'CHECK MANUALLY' }}
+
+          ==========================================================================
+
+    # Final safety check
+    - name: "Verify SSH is accepting connections"
+      wait_for:
+        port: 22
+        host: "{{ inventory_hostname }}"
+        delay: 2
+        timeout: 10
+      delegate_to: localhost
+      register: ssh_connection_test
+      ignore_errors: yes
+
+    - name: "SSH Connection Test Result"
+      debug:
+        msg: |
+          SSH CONNECTION TEST: {{ 'PASSED - SSH is accepting connections' if ssh_connection_test is succeeded else 'FAILED - Please check SSH manually' }}
+          
+          If SSH test failed:
+          1. Check SSH service: sudo systemctl status ssh
+          2. Check SSH config: sudo sshd -t
+          3. Use DigitalOcean console for emergency access
