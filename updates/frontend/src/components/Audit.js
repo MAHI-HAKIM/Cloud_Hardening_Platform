@@ -60,25 +60,44 @@ const Audit = () => {
     const lines = output.split("\n");
     const tasks = [];
     let currentTask = null;
-    let capturingMsg = false;
 
     lines.forEach((line) => {
+      // Look for task names
       const taskMatch = line.match(/TASK \[(.*?)\]/);
       if (taskMatch) {
-        // Start a new task
         currentTask = { name: taskMatch[1], status: "pending" };
         tasks.push(currentTask);
-        capturingMsg = true; // prepare to capture msg for this task
       }
 
-      if (capturingMsg) {
-        const msgMatch = line.match(/"msg":\s*"?(PASS|FAIL)"?/);
-        if (msgMatch && currentTask) {
-          currentTask.status = msgMatch[1].toLowerCase(); // 'pass' or 'fail'
-          capturingMsg = false;
-        }
+      // Look for compliance messages
+      const complianceMatch = line.match(
+        /CIS (\d+\.\d+\.\d+) - (.*?): (✅ COMPLIANT|❌ NOT COMPLIANT)/
+      );
+      if (complianceMatch && currentTask) {
+        currentTask.name = `${complianceMatch[1]} ${complianceMatch[2]}`;
+        currentTask.status =
+          complianceMatch[3] === "✅ COMPLIANT" ? "pass" : "fail";
       }
     });
+
+    // If no tasks found, try to parse the summary section
+    if (tasks.length === 0) {
+      const summaryMatch = output.match(
+        /CIS BENCHMARK COMPLIANCE SUMMARY([\s\S]*?)=/
+      );
+      if (summaryMatch) {
+        const summaryLines = summaryMatch[1].trim().split("\n");
+        summaryLines.forEach((line) => {
+          const detailMatch = line.match(/([^:]+):\s*([✅❌]\s*\w+)/);
+          if (detailMatch) {
+            tasks.push({
+              name: detailMatch[1].trim(),
+              status: detailMatch[2].includes("✅") ? "pass" : "fail",
+            });
+          }
+        });
+      }
+    }
 
     return tasks;
   };
@@ -111,6 +130,11 @@ const Audit = () => {
         }
       );
       const result = await response.json();
+
+      // Add detailed logging
+      console.log("Full Playbook Result:", result);
+      console.log("Raw Output:", result.output);
+
       setRunResult(result);
 
       if (result.success) {
@@ -120,7 +144,9 @@ const Audit = () => {
       }
 
       if (result.output) {
-        setTaskProgress(parseAnsibleOutput(result.output));
+        const parsedTasks = parseAnsibleOutput(result.output);
+        console.log("Parsed Tasks:", parsedTasks);
+        setTaskProgress(parsedTasks);
       }
     } catch (err) {
       alert("\u274C Request failed: " + err.message);
