@@ -94,7 +94,6 @@ const PlaybookSelection = () => {
       playbookPath: selectedPlaybook.fullPath,
     };
 
-    console.log("payload", payload);
     try {
       const response = await fetch(
         "http://localhost:5000/api/ssh/run-playbook",

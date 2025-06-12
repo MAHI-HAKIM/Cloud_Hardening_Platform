@@ -91,14 +91,12 @@ function Dashboard() {
   return (
     <DashboardLayout activePage="dashboard">
       <header className="dashboard-header">
-        <h1>Firewall Hardening Dashboard</h1>
+        <h1>Cloud Hardening Dashboard</h1>
       </header>
 
       <div className="dashboard-grid">
         <DeviceList devices={devices} />
-        <AuditSummary lastAudit={lastAudit} />
         <QuickActions />
-        <StatusCard lastAudit={lastAudit} />
       </div>
     </DashboardLayout>
   );

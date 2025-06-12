@@ -1,3 +1,31 @@
+Directory to Project --------------------------------
+cd /mnt/c/Users/HP/Desktop/Cloud_Hardening_Platform
+-----------------------------------------------------
+
+Enes Cloud SSH Connect--------------------
+ssh root@161.35.71.66
+-----------------------------------------
+
+Enes Cloud Details-----------------------
+
+ubuntu-s-2vcpu-4gb-fra1-01
+root
+161.35.71.66
+eNesi-1707cloud
+------------------------------------------
+
+Mahi Cloud Detailts
+ubuntu-s-1vcpu-512mb-10gb-fra1-01
+root
+138.68.103.7
+Mahi20Abdul
+
+
+Mahi Cloud SSH Connect ---------------------
+ssh root@138.68.103.7
+-----------------------------------------
+
+
 /********* FAIL2BAN MANUAL Checks *****************/
 
 COMAND------------------------------------
