@@ -15,8 +15,6 @@ This platform allows system administrators to strengthen their cloud servers wit
 
 ## 🏗️ Architecture
 
-![System Architecture](./assets/architecture-diagram.png)
-
 - **Frontend**: React.js + Firebase Authentication
 - **Backend**: Node.js + Express.js
 - **Automation**: Ansible playbooks
@@ -31,7 +29,7 @@ This platform allows system administrators to strengthen their cloud servers wit
 ![Hardening Page](./assets/hardening-page.png)
 
 ### SSH Connection Setup
-![SSH Connection](./assets/ssh-connection-page.png)
+![SSH Connection](frontend/public/hardening.jpg)
 
 ## 🛠️ Tech Stack
 
