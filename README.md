@@ -26,10 +26,10 @@ This platform allows system administrators to strengthen their cloud servers wit
 ![Dashboard](./assets/dashboard.png)
 
 ### Hardening Operations
-![Hardening Page](./assets/hardening-page.png)
+![Hardening Page](frontend/public/hardening.jpg)
 
 ### SSH Connection Setup
-![SSH Connection](frontend/public/hardening.jpg)
+![SSH Connection](frontend/public/sshconnection.jpg)
 
 ## 🛠️ Tech Stack
 
